@@ -34,3 +34,6 @@ jobs:
       - run: npx supabase db reset
       - run: pip install -e .
       - run: python scripts/test-reincarnation.py
+      - run: pip install 'httpx>=0.28,<1'
+      - run: python scripts/test-api-quorum.py
+      - run: python scripts/benchmark-quorum.py

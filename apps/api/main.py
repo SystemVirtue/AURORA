@@ -41,6 +41,12 @@ class SessionRequest(BaseModel):
     title: str | None = Field(default=None, max_length=500)
 
 
+class ReindexRequest(BaseModel):
+    workspace_id: uuid.UUID
+    document_id: uuid.UUID | None = None
+    batch_size: int = Field(default=32, ge=1, le=128)
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "aurora-api"}
@@ -101,6 +107,45 @@ def ingest_document(request: DocumentRequest) -> dict:
     return {"document_id": str(document_id), "source_id": str(source_id), "chunks": count}
 
 
+@app.post("/v1/reindex/embeddings")
+async def reindex_embeddings(request: ReindexRequest) -> dict[str, int]:
+    """Backfill the rebuildable vector projection without changing authoritative documents."""
+    if not settings.database_url:
+        raise HTTPException(503, "DATABASE_URL is not configured")
+    gateway = ReasoningGateway()
+    try:
+        with psycopg.connect(settings.database_url) as conn:
+            if request.document_id:
+                rows = conn.execute(
+                    """select id, content from public.document_chunks
+                       where workspace_id=%s and document_id=%s order by chunk_index""",
+                    (request.workspace_id, request.document_id),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """select id, content from public.document_chunks
+                       where workspace_id=%s order by created_at, chunk_index""",
+                    (request.workspace_id,),
+                ).fetchall()
+            updated = 0
+            for start in range(0, len(rows), request.batch_size):
+                batch = rows[start : start + request.batch_size]
+                result = await gateway.embed([row[1] for row in batch])
+                if any(len(vector) != 1536 for vector in result["embeddings"]):
+                    raise ReasoningError("Configured embedding model must produce 1536 dimensions")
+                for (chunk_id, _), vector in zip(batch, result["embeddings"]):
+                    vector_text = "[" + ",".join(str(float(value)) for value in vector) + "]"
+                    conn.execute(
+                        "update public.document_chunks set embedding=%s::vector where id=%s and workspace_id=%s",
+                        (vector_text, chunk_id, request.workspace_id),
+                    )
+                    updated += 1
+            conn.commit()
+    except ReasoningError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"selected": len(rows), "embedded": updated}
+
+
 @app.post("/v1/ask")
 async def ask(request: AskRequest) -> dict:
     if not settings.database_url:
@@ -125,7 +170,6 @@ async def ask(request: AskRequest) -> dict:
             correlation_id=correlation_id,
         )
         lexical = retrieve_lexical(conn, workspace_id=request.workspace_id, question=request.question)
-
         semantic: list[dict] = []
         if settings.openai_api_key or settings.openrouter_api_key:
             try:
@@ -136,7 +180,6 @@ async def ask(request: AskRequest) -> dict:
                         conn, workspace_id=request.workspace_id, embedding=embedding
                     )
             except ReasoningError:
-                # Semantic retrieval is an enhancement; lexical retrieval remains the safe fallback.
                 semantic = []
         evidence = merge_retrieval_results(lexical, semantic)
         context = "\n\n".join(

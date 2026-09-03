@@ -1,5 +1,4 @@
 -- Belief revision is explicit, temporal, and event-auditable.
--- A review changes the status of a claim; promotion creates a temporal belief state.
 create index beliefs_workspace_claim_idx
   on public.beliefs(workspace_id, claim_id, created_at desc);
 
@@ -17,7 +16,7 @@ set search_path = public
 as $$
 declare
   c claims%rowtype;
-  b beliefs%rowtype;
+  old_belief_id uuid;
   new_belief uuid;
   now_ts timestamptz := now();
 begin
@@ -25,18 +24,9 @@ begin
     raise exception 'invalid assertion status: %', target_status;
   end if;
 
-  select * into c
-    from public.claims
-   where id = target_claim
-   for update;
-
-  if not found then
-    raise exception 'claim not found: %', target_claim;
-  end if;
-
-  if not public.is_workspace_member(c.workspace_id) then
-    raise exception 'workspace access denied';
-  end if;
+  select * into c from public.claims where id = target_claim for update;
+  if not found then raise exception 'claim not found: %', target_claim; end if;
+  if not public.is_workspace_member(c.workspace_id) then raise exception 'workspace access denied'; end if;
 
   update public.claims
      set assertion_status = target_status,
@@ -44,14 +34,11 @@ begin
          metadata = metadata || jsonb_build_object(
            'last_reviewed_by', reviewer,
            'last_reviewed_at', now_ts,
-           'review_rationale', rationale
-         )
+           'review_rationale', rationale)
    where id = target_claim;
 
   if target_status in ('supported','contested') then
-    -- Close the current open belief before inserting the replacement so the
-    -- temporal exclusion constraint remains meaningful.
-    select * into b
+    select id into old_belief_id
       from public.beliefs
      where claim_id = target_claim
        and workspace_id = c.workspace_id
@@ -60,11 +47,11 @@ begin
      limit 1
      for update;
 
-    if found then
+    if old_belief_id is not null then
       update public.beliefs
          set valid_during = tstzrange(lower(valid_during), now_ts, '[)'),
              recorded_during = tstzrange(lower(recorded_during), now_ts, '[)')
-       where id = b.id;
+       where id = old_belief_id;
     end if;
 
     new_belief := gen_random_uuid();
@@ -77,8 +64,8 @@ begin
        tstzrange(now_ts, null, '[)'),
        tstzrange(now_ts, null, '[)'));
 
-    if found then
-      update public.beliefs set superseded_by = new_belief where id = b.id;
+    if old_belief_id is not null then
+      update public.beliefs set superseded_by = new_belief where id = old_belief_id;
     end if;
   end if;
 
@@ -90,10 +77,9 @@ begin
      jsonb_build_object('claim_id', c.id, 'status', target_status,
                         'confidence', target_confidence, 'rationale', rationale,
                         'belief_id', new_belief));
-
   return new_belief;
 end;
 $$;
 
 comment on function public.revise_claim(uuid,text,uuid,numeric,text) is
-  'Explicit human review of a claim. Supported/contested states create temporal belief versions; the function never silently resolves contradictions.';
+  'Explicit human review of a claim. Supported/contested states create temporal belief versions; contradictions remain explicit.';

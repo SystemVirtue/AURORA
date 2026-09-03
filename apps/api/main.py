@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import uuid
 from pathlib import Path
 
@@ -127,10 +126,17 @@ def claim_contradictions(
             "select claim_id, opposing_claim_id, subject, predicate, object, opposing_object from public.claim_contradictions(%s)",
             (workspace_id,),
         ).fetchall()
-    return {"workspace_id": str(workspace_id), "count": len(rows), "contradictions": [
-        {"claim_id": str(r[0]), "opposing_claim_id": str(r[1]), "subject": r[2], "predicate": r[3], "object": r[4], "opposing_object": r[5]}
-        for r in rows
-    ]}
+    return {
+        "workspace_id": str(workspace_id),
+        "count": len(rows),
+        "contradictions": [
+            {
+                "claim_id": str(r[0]), "opposing_claim_id": str(r[1]), "subject": r[2],
+                "predicate": r[3], "object": r[4], "opposing_object": r[5],
+            }
+            for r in rows
+        ],
+    }
 
 
 @app.post("/v1/sessions")
@@ -318,7 +324,8 @@ async def ask(
         conn.commit()
     return {
         "session_id": str(session_id), "reasoning_run_id": str(reasoning_run_id),
-        "answer": result["answer"], "evidence": retrieved, "evidence_ids": [item["evidence_id"] for item in retrieved if item.get("evidence_id")],
+        "answer": result["answer"], "evidence": retrieved,
+        "evidence_ids": [item["evidence_id"] for item in retrieved if item.get("evidence_id")],
         "model": result["model"], "provider": result.get("provider"), "latency_ms": result.get("latency_ms"),
         "trace": {"correlation_id": str(correlation_id), "user_event_id": str(user_event_id), "assistant_event_id": str(assistant_event_id)},
     }

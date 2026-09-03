@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -74,7 +74,7 @@ class ReasoningGateway:
         mode: str = "balanced",
     ) -> dict[str, Any]:
         """Execute one provider call and normalize it into AURORA's reasoning contract."""
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
         context_text = "\n\n".join(
             f"[Evidence {item.get('evidence_id', 'unknown')}] {item.get('content', '')}"
             for item in (context or [])
@@ -82,7 +82,7 @@ class ReasoningGateway:
         if mode not in {"fast", "balanced", "deep"}:
             raise ReasoningError(f"Unsupported reasoning mode: {mode}")
         result = await self.complete(question=question, context=context_text, model=model)
-        completed_at = datetime.now(timezone.utc)
+        completed_at = datetime.now(UTC)
         return {
             "model": result["model"],
             "provider": result["provider"],

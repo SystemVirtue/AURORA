@@ -63,10 +63,19 @@ class ReasoningGateway:
             models = [settings.default_model]
         return list(dict.fromkeys(models))[:3]
 
-    async def _quorum_reason(self, *, question: str, context: list[dict[str, Any]], model: str | None, mode: str) -> dict[str, Any]:
+    async def _quorum_reason(
+        self,
+        *,
+        question: str,
+        context: list[dict[str, Any]],
+        model: str | None,
+        mode: str,
+        warrant: str,
+    ) -> dict[str, Any]:
         models = self._quorum_models(model)
         if not models:
             raise ReasoningError("No QUORUM models configured")
+        started_at = datetime.now(UTC)
         context_text = "\n\n".join(
             f"[Evidence {item.get('evidence_id', 'unknown')}] {item.get('content', '')}" for item in context
         )
@@ -95,12 +104,18 @@ class ReasoningGateway:
             "model": synthesis["model"], "provider": synthesis["provider"], "answer": synthesis["response"],
             "confidence": None,
             "latency_ms": sum(result["latency_ms"] for _, result, _ in results if result is not None) + synthesis["latency_ms"],
-            "estimated_cost": None, "started_at": completed_at, "completed_at": completed_at,
+            "estimated_cost": None, "started_at": started_at, "completed_at": completed_at,
             "event_time": completed_at, "mode": mode, "raw": synthesis["raw"],
             "quorum": {
-                "warrant": "explicit_quorum_mode" if mode == "quorum" else "missing_evidence",
+                "warrant": warrant,
                 "contributors": [
-                    {"model": c.model_id, "provider": c.provider, "response": c.response, "evidence_ids": list(c.evidence_ids)}
+                    {
+                        "model": c.model_id,
+                        "provider": c.provider,
+                        "response": c.response,
+                        "evidence_ids": list(c.evidence_ids),
+                        "latency_ms": next(result["latency_ms"] for selected, result, _ in results if selected == c.model_id and result is not None),
+                    }
                     for c in contributions
                 ],
                 "failed_contributors": errors,
@@ -109,17 +124,30 @@ class ReasoningGateway:
                 "evidence_coverage": deliberation.evidence_coverage,
                 "collective_gain": deliberation.collective_gain,
                 "synthesis_model": synthesis["model"],
+                "synthesis_provider": synthesis["provider"],
+                "synthesis_latency_ms": synthesis["latency_ms"],
             },
         }
 
-    async def reason(self, *, question: str, context: list[dict[str, Any]] | None = None, model: str | None = None, mode: str = "balanced") -> dict[str, Any]:
-        """Execute reasoning; missing-evidence balanced requests escalate selectively to QUORUM."""
+    async def reason(
+        self,
+        *,
+        question: str,
+        context: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        mode: str = "balanced",
+        warrant: str | None = None,
+    ) -> dict[str, Any]:
+        """Execute reasoning; spend extra calls only when the caller supplies a warrant."""
         started_at = datetime.now(UTC)
         context = context or []
         if mode not in {"fast", "balanced", "deep", "quorum"}:
             raise ReasoningError(f"Unsupported reasoning mode: {mode}")
         if mode in {"quorum", "deep"} or (mode == "balanced" and not context):
-            return await self._quorum_reason(question=question, context=context, model=model, mode=mode)
+            selected_warrant = warrant or ("explicit_quorum_mode" if mode == "quorum" else "missing_evidence")
+            return await self._quorum_reason(
+                question=question, context=context, model=model, mode=mode, warrant=selected_warrant,
+            )
         context_text = "\n\n".join(f"[Evidence {item.get('evidence_id', 'unknown')}] {item.get('content', '')}" for item in context)
         result = await self.complete(question=question, context=context_text, model=model)
         completed_at = datetime.now(UTC)

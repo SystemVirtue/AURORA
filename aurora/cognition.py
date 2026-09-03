@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import uuid
 from typing import Any
@@ -90,9 +91,65 @@ def retrieve_lexical(
         (question, workspace_id, question, limit),
     ).fetchall()
     return [
-        {"chunk_id": row[0], "document_id": row[1], "document": row[2], "chunk_index": row[3], "content": row[4], "score": float(row[5])}
+        {
+            "chunk_id": row[0],
+            "document_id": row[1],
+            "document": row[2],
+            "chunk_index": row[3],
+            "content": row[4],
+            "score": float(row[5]),
+            "retrieval": "lexical",
+        }
         for row in rows
     ]
+
+
+def retrieve_semantic(
+    conn: psycopg.Connection,
+    *,
+    workspace_id: uuid.UUID,
+    embedding: list[float],
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    """Cosine retrieval over the derived pgvector projection."""
+    vector = "[" + ",".join(str(float(value)) for value in embedding) + "]"
+    rows = conn.execute(
+        """select dc.id, dc.document_id, d.name, dc.chunk_index, dc.content,
+                  1 - (dc.embedding <=> %s::vector) as score
+           from public.document_chunks dc
+           join public.documents d on d.id = dc.document_id
+          where dc.workspace_id = %s and dc.embedding is not null
+          order by dc.embedding <=> %s::vector
+          limit %s""",
+        (vector, workspace_id, vector, limit),
+    ).fetchall()
+    return [
+        {
+            "chunk_id": row[0],
+            "document_id": row[1],
+            "document": row[2],
+            "chunk_index": row[3],
+            "content": row[4],
+            "score": float(row[5]),
+            "retrieval": "semantic",
+        }
+        for row in rows
+    ]
+
+
+def merge_retrieval_results(
+    lexical: list[dict[str, Any]], semantic: list[dict[str, Any]], limit: int = 8
+) -> list[dict[str, Any]]:
+    """Reciprocal-rank fusion keeps lexical and semantic retrieval complementary."""
+    fused: dict[str, dict[str, Any]] = {}
+    for results in (lexical, semantic):
+        for rank, item in enumerate(results, start=1):
+            key = str(item["chunk_id"])
+            entry = fused.setdefault(key, {**item, "retrieval": "hybrid", "fusion_score": 0.0})
+            entry["fusion_score"] += 1.0 / (60 + rank)
+            if item["score"] > entry["score"]:
+                entry["score"] = item["score"]
+    return sorted(fused.values(), key=lambda item: item["fusion_score"], reverse=True)[:limit]
 
 
 def record_message(
@@ -119,7 +176,7 @@ def record_message(
         """insert into public.events
            (id,workspace_id,session_id,event_type,producer_type,event_time,recorded_at,causation_id,correlation_id,schema_version,payload)
            values (%(id)s,%(workspace_id)s,%(session_id)s,%(event_type)s,%(producer_type)s,%(event_time)s,%(recorded_at)s,%(causation_id)s,%(correlation_id)s,%(schema_version)s,%(payload)s::jsonb)""",
-        {**event, "payload": __import__("json").dumps(event["payload"])},
+        {**event, "payload": json.dumps(event["payload"])},
     )
     sequence = conn.execute(
         "select coalesce(max(sequence_no), -1) + 1 from public.messages where session_id = %s",

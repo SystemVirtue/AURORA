@@ -20,13 +20,17 @@ class ReasoningGateway:
         selected = model or settings.default_model
         if not selected:
             raise ReasoningError("AURORA_DEFAULT_MODEL is not configured")
-        if selected.startswith("openrouter/") or settings.openrouter_api_key:
+        if selected.startswith("openrouter/"):
             return (
                 "https://openrouter.ai/api/v1",
                 settings.openrouter_api_key or "",
                 selected.removeprefix("openrouter/"),
                 "openrouter",
             )
+        if selected.startswith("openai/"):
+            return "https://api.openai.com/v1", settings.openai_api_key or "", selected.removeprefix("openai/"), "openai"
+        if settings.openrouter_api_key:
+            return "https://openrouter.ai/api/v1", settings.openrouter_api_key, selected, "openrouter"
         return "https://api.openai.com/v1", settings.openai_api_key or "", selected, "openai"
 
     async def complete(self, *, question: str, context: str = "", model: str | None = None) -> dict[str, Any]:
@@ -102,10 +106,11 @@ class ReasoningGateway:
         if not texts:
             return {"model": model or settings.embedding_model, "provider": None, "embeddings": []}
         if model:
-            actual_model = model.removeprefix("openrouter/")
-            provider = "openrouter" if model.startswith("openrouter/") else "openai"
-            key = settings.openrouter_api_key if provider == "openrouter" else settings.openai_api_key
-            base = "https://openrouter.ai/api/v1" if provider == "openrouter" else "https://api.openai.com/v1"
+            actual_model = model.removeprefix("openrouter/").removeprefix("openai/")
+            if model.startswith("openrouter/"):
+                provider, key, base = "openrouter", settings.openrouter_api_key, "https://openrouter.ai/api/v1"
+            else:
+                provider, key, base = "openai", settings.openai_api_key, "https://api.openai.com/v1"
         elif settings.openrouter_api_key:
             actual_model = settings.embedding_model
             provider, key, base = "openrouter", settings.openrouter_api_key, "https://openrouter.ai/api/v1"

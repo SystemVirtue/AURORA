@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 
 @dataclass(frozen=True)
@@ -20,11 +20,7 @@ class Deliberation:
 
 
 def compare_contributions(question: str, contributions: Sequence[Contribution]) -> Deliberation:
-    """Record independent contributions without pretending lexical agreement equals truth.
-
-    This is deliberately a deterministic substrate primitive. Model-based evaluation and
-    synthesis belong in the Reasoning Gateway/evaluator layer.
-    """
+    """Record independent contributions without pretending lexical agreement equals truth."""
     if not contributions:
         raise ValueError("QUORUM requires at least one contribution")
     normalized = [set(c.response.lower().split()) for c in contributions]

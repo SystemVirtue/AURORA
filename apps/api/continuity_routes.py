@@ -7,6 +7,7 @@ from pathlib import Path
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from aurora.continuity import TABLES, export_workspace
@@ -14,6 +15,7 @@ from aurora.continuity_restore import restore_workspace, validate_restore_bundle
 from aurora.core import settings
 
 router = APIRouter(prefix="/v1/continuity", tags=["continuity"])
+bearer = HTTPBearer(auto_error=False)
 
 
 class ContinuityRestoreRequest(BaseModel):
@@ -23,7 +25,9 @@ class ContinuityRestoreRequest(BaseModel):
     dry_run: bool = False
 
 
-def _authenticated_user(credentials):
+def _authenticated_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),  # noqa: B008
+) -> uuid.UUID:
     from apps.api.main import current_user
     return current_user(credentials)
 
@@ -73,9 +77,7 @@ def restore_continuity(
 ) -> dict:
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
-    # The caller must already control the target workspace namespace. For a real restore
-    # into a fresh workspace, the mapped user must be a member of the bundle workspace.
-    if user_id not in request.user_id_map.values() and str(user_id) not in request.user_id_map:
+    if user_id not in request.user_id_map.values():
         raise HTTPException(403, "Authenticated user must be present in user_id_map")
     with tempfile.TemporaryDirectory(prefix="aurora-restore-") as tmp:
         root = Path(tmp)

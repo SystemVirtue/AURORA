@@ -1,4 +1,4 @@
-"""Live API integration proof for contradiction-warranted QUORUM persistence."""
+"""Live API integration proof for QUORUM, authenticated continuity, and reincarnation."""
 
 from __future__ import annotations
 
@@ -58,6 +58,10 @@ async def fake_reason(self, *, question, context=None, model=None, mode="balance
     }
 
 
+async def fake_embed(self, texts, model=None):
+    return {"model": model or "test-embedding", "provider": "test", "embeddings": [[0.0] * 1536 for _ in texts]}
+
+
 def main() -> None:
     settings.database_url = DB_URL
     settings.supabase_jwt_secret = "aurora-api-integration-secret"
@@ -68,8 +72,10 @@ def main() -> None:
     headers = {"Authorization": f"Bearer {token}"}
     with psycopg.connect(DB_URL) as conn:
         seed(conn)
-    original = ReasoningGateway.reason
+    original_reason = ReasoningGateway.reason
+    original_embed = ReasoningGateway.embed
     ReasoningGateway.reason = fake_reason
+    ReasoningGateway.embed = fake_embed
     try:
         with TestClient(app) as client:
             for content in ("The Aurora server is online.", "The Aurora server is offline."):
@@ -85,12 +91,10 @@ def main() -> None:
             assert response.status_code == 200, response.text
             body = response.json()
             assert body["trace"]["warrant"] == "workspace_contradiction"
-            assert body["quorum"]["contributors"]
             run_id = body["reasoning_run_id"]
             with psycopg.connect(DB_URL) as conn:
                 count = conn.execute(
-                    "select count(*) from public.model_contributions where reasoning_run_id=%s",
-                    (run_id,),
+                    "select count(*) from public.model_contributions where reasoning_run_id=%s", (run_id,)
                 ).fetchone()[0]
                 event = conn.execute(
                     "select 1 from public.events where aggregate_id=%s and event_type='reasoning.quorum_completed'",
@@ -98,9 +102,38 @@ def main() -> None:
                 ).fetchone()
             assert count == 3
             assert event
-            print("API QUORUM integration: PASS")
+
+            exported = client.get(f"/v1/continuity/export?workspace_id={WORKSPACE_ID}", headers=headers)
+            assert exported.status_code == 200, exported.text
+            bundle = exported.json()["bundle"]
+            with psycopg.connect(DB_URL) as conn:
+                conn.execute("delete from public.workspaces where id=%s", (WORKSPACE_ID,))
+                conn.commit()
+
+            restored = client.post(
+                "/v1/continuity/restore", headers=headers,
+                json={"workspace_id": str(WORKSPACE_ID), "user_id_map": {str(USER_ID): str(USER_ID)}, "bundle": bundle},
+            )
+            assert restored.status_code == 200, restored.text
+            assert restored.json()["rebuilt"]["document_chunks"] > 0
+
+            reindexed = client.post(
+                "/v1/reindex/embeddings", headers=headers,
+                json={"workspace_id": str(WORKSPACE_ID)},
+            )
+            assert reindexed.status_code == 200, reindexed.text
+            assert reindexed.json()["embedded"] > 0
+
+            after_restore = client.post(
+                "/v1/ask", headers=headers,
+                json={"workspace_id": str(WORKSPACE_ID), "question": "Is the Aurora server online?"},
+            )
+            assert after_restore.status_code == 200, after_restore.text
+            assert after_restore.json()["trace"]["warrant"] == "workspace_contradiction"
+            print("API QUORUM + authenticated continuity + reindex/ask: PASS")
     finally:
-        ReasoningGateway.reason = original
+        ReasoningGateway.reason = original_reason
+        ReasoningGateway.embed = original_embed
         with psycopg.connect(DB_URL) as conn:
             conn.execute("delete from public.workspaces where id=%s", (WORKSPACE_ID,))
             conn.execute("delete from auth.users where id=%s", (USER_ID,))

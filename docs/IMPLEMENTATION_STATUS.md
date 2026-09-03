@@ -49,4 +49,4 @@ The repository now has a **working architectural spine**, but it must not be des
 
 ## Verification policy
 
-Every database migration must be tested with `supabase db reset` locally before remote deployment. Remote changes should use migration files and `supabase db push`; direct remote schema edits create migration drift. citeturn0search2turn0search4
+Every database migration must be tested with `supabase db reset` locally before remote deployment. Remote changes should use migration files and `supabase db push`; direct remote schema edits create migration drift.

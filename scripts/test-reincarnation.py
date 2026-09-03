@@ -181,7 +181,7 @@ def counts(conn: psycopg.Connection) -> dict[str, int]:
 
 def verify_belief_revision(conn: psycopg.Connection) -> None:
     new_belief_id = conn.execute(
-        "select public.revise_claim(%s, 'contested', %s, %s, %s)",
+        "select public.revise_claim(%s, 'contested', %s, %s::numeric, %s)",
         (CLAIM_ID, USER_ID, 0.55, "Contradictory evidence requires a contested state."),
     ).fetchone()[0]
     current = conn.execute(

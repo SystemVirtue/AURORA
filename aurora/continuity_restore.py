@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from psycopg.types.json import Jsonb
+from psycopg.types.range import Range
 
 from aurora.cognition import chunk_text, content_hash
 from aurora.continuity import TABLES, verify_json_bundle
@@ -22,6 +24,8 @@ AUTH_USER_FIELDS = {
     "events": ("producer_id",),
 }
 
+RANGE_FIELDS = {"valid_during", "recorded_during"}
+
 
 def _read_table(root: Path, table: str) -> list[dict[str, Any]]:
     path = root / f"{table}.json"
@@ -37,16 +41,31 @@ def _map_user(value: Any, user_id_map: dict[str, str]) -> Any:
     return None if value is None else user_id_map.get(str(value), value)
 
 
+def _parse_range(value: str) -> Range[Any] | str:
+    """Rehydrate a PostgreSQL range that was serialized by JSON's default=str."""
+    text = value.strip()
+    if len(text) < 3 or text[0] not in "[(" or text[-1] not in ")]" or "," not in text:
+        return value
+    lower_text, upper_text = text[1:-1].split(",", 1)
+    lower = None if lower_text.strip() in {"", "None"} else datetime.fromisoformat(lower_text.strip())
+    upper = None if upper_text.strip() in {"", "None"} else datetime.fromisoformat(upper_text.strip())
+    return Range(lower=lower, upper=upper, bounds=text[0] + text[-1])
+
+
 def _mapped_row(table: str, row: dict[str, Any], user_id_map: dict[str, str]) -> dict[str, Any]:
     result = dict(row)
     for field in AUTH_USER_FIELDS.get(table, ()):
         if field in result:
             result[field] = _map_user(result[field], user_id_map)
+    for field in RANGE_FIELDS.intersection(result):
+        value = result[field]
+        if isinstance(value, str):
+            result[field] = _parse_range(value)
     return result
 
 
 def _adapt_value(value: Any) -> Any:
-    """Adapt JSON-native values to psycopg types without changing scalar/range values."""
+    """Adapt JSON-native objects to psycopg types."""
     if isinstance(value, dict):
         return Jsonb(value)
     return value

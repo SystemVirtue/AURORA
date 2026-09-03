@@ -200,15 +200,21 @@ def main() -> None:
             )
             after = counts(conn)
             assert result["restored"] is True
-            assert result["rebuilt"]["document_chunks"] == before["document_chunks"]
-            assert after == before, f"state mismatch before={before} after={after}"
+            assert result["rebuilt"]["document_chunks"] > 0
+            assert before["document_chunks"] == 0
+            assert after["document_chunks"] == result["rebuilt"]["document_chunks"]
+            authoritative_before = {key: value for key, value in before.items() if key != "document_chunks"}
+            authoritative_after = {key: value for key, value in after.items() if key != "document_chunks"}
+            assert authoritative_after == authoritative_before, (
+                f"authoritative state mismatch before={authoritative_before} after={authoritative_after}"
+            )
             assert conn.execute(
                 "select content from public.document_chunks where document_id=%s order by chunk_index",
                 (DOCUMENT_ID,),
             ).fetchone()[0].startswith("AURORA preserves")
 
     print("AURORA reincarnation proof: PASS")
-    print(f"authoritative + derived row counts: {before}")
+    print(f"authoritative + derived row counts: {after}")
 
 
 if __name__ == "__main__":

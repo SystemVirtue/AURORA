@@ -7,46 +7,64 @@
 | Capability | Status | Notes |
 |---|---|---|
 | Python package | ✅ | Python 3.11+ baseline |
-| FastAPI health endpoint | ✅ | `/health` |
-| Provider-neutral gateway | ✅ | OpenAI-compatible path; provider logic isolated |
-| Reasoning run persistence | ✅ | Run + contribution + event |
+| FastAPI API | ✅ | health, sessions, document ingestion, `/v1/ask` |
+| Provider-neutral gateway | ✅ | OpenAI-compatible OpenRouter/OpenAI path |
+| Persistent sessions/messages | ✅ | user + assistant messages are durable |
+| Reasoning run persistence | ✅ | run + contribution + provenance event |
 | Event envelope | ✅ | causation/correlation/schema/idempotency fields |
-| Canonical cognitive schema | ✅ | Workspace, history, knowledge, cognition, reasoning |
-| Workspace RLS | ✅ | Membership boundary; no blanket allow policies |
+| Canonical cognitive schema | ✅ | workspace, history, knowledge, cognition, reasoning |
+| Workspace RLS | ✅ | membership boundary; no blanket allow policies |
 | Temporal state | ✅ | valid-time + record-time ranges |
 | Relationship versioning | ✅ | surrogate IDs + exclusion constraint |
-| Facts vs beliefs | ✅ | separate `state_type` in temporal constraint |
-| Evidence links | ✅ | first-class supports/contradicts/qualifies/context |
-| Epistemic gaps | ✅ schema | Detection/evaluation logic still evolving |
+| Facts vs beliefs | ✅ | `state_type` participates in temporal constraint |
+| Evidence links | ✅ schema | extraction/evaluation layer still evolving |
+| Document ingestion | ✅ | text ingestion + deterministic chunking |
+| Lexical retrieval | ✅ | PostgreSQL full-text retrieval over document chunks |
+| pgvector projection | ✅ schema | embeddings are nullable/rebuildable; semantic generation remains next |
+| Epistemic gaps | ✅ initial | missing-evidence gap emitted when retrieval returns none |
 | Generic conversation normalization | ✅ | attributed source/role retained |
-| QUORUM substrate | ✅ | contribution preservation/comparison; model evaluator still ahead |
-| Portable state bundle | ✅ primitive | Full DB exporter/importer is next continuity increment |
+| QUORUM substrate | ✅ | contribution preservation/comparison; orchestration remains next |
+| Portable state bundle | ✅ primitive | database-wide exporter/importer remains next |
 | Local deployment | ✅ | Supabase CLI + scripts |
 | Remote migration deployment | ✅ | dry-run then push |
-| CI | ✅ | Python tests + local Supabase reset |
+| CI | ⚠️ | Supabase job passed; Python lint found and fixed in subsequent commits |
 
-## Not yet MVP-complete
+## Current thin slice
 
-The following remain required before declaring the product MVP finished:
+A real request can now follow the first meaningful portion of:
 
-1. Real document ingestion and chunking.
-2. Semantic retrieval using pgvector.
-3. Historical conversation importers for major export formats.
-4. Claim/evidence extraction from imported material.
-5. Transparent evidence-aware answer presentation.
-6. Authenticated API sessions and end-user RLS integration.
-7. Belief revision and contradiction detection.
-8. Full reasoning trace persistence, including evaluator/synthesis provenance.
-9. Real QUORUM orchestration and measurable collective-gain evaluation.
-10. Complete database export/import with checksum verification and rebuild of derived indexes.
+**ASK → INVESTIGATE → REASON → EXPLAIN → REMEMBER**
+
+Specifically:
+
+1. create or reuse a session;
+2. record the user message as an event;
+3. retrieve matching document chunks;
+4. pass retrieved context through the Reasoning Gateway;
+5. persist the reasoning run and model contribution;
+6. record the assistant response as an event/message;
+7. return evidence metadata and correlation trace;
+8. emit an epistemic-gap record when no indexed evidence matches.
+
+This is deliberately a thin slice. It is not yet the full transparent cognitive workspace.
+
+## Remaining MVP work
+
+1. Semantic embedding generation and vector retrieval.
+2. Major LLM conversation importers with provenance reconstruction.
+3. Atomic claim extraction from documents/conversations/model output.
+4. Explicit evidence assessment and claim/evidence graph traversal.
+5. Evidence-aware answer presentation and source inspection UI.
+6. Authenticated API sessions and end-user RLS integration rather than trusted service/database access.
+7. Contradiction detection and belief revision.
+8. Full reasoning/evaluation/synthesis provenance.
+9. Real selective QUORUM orchestration with measurable collective-gain evaluation.
+10. Complete database export/import with checksum verification, ordering and dependency-aware restore.
 11. Fresh-deployment reincarnation test.
-
-## Important distinction
-
-The repository now has a **working architectural spine**, but it must not be described as a finished transparent-AI product. The remaining work is precisely the work that turns the spine into the demonstrated cognitive loop:
-
-**Ask → Investigate → Reason → Explain → Remember.**
+12. Web UI for the cognitive workspace.
 
 ## Verification policy
 
-Every database migration must be tested with `supabase db reset` locally before remote deployment. Remote changes should use migration files and `supabase db push`; direct remote schema edits create migration drift.
+Every migration must pass `supabase db reset` locally/CI before remote deployment. Remote changes use migration files and `supabase db push`; direct remote schema edits create migration drift.
+
+A failed CI check is treated as an engineering defect, not ignored. The current Python lint failure was caused by Python 3.12 modernization rules and has been corrected in the follow-up commits.

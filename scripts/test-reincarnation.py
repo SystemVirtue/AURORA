@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 import uuid
+from decimal import Decimal
 from pathlib import Path
 
 import psycopg
@@ -205,15 +206,16 @@ def verify_belief_revision(conn: psycopg.Connection) -> None:
         "select count(*) from public.events where workspace_id=%s and event_type='claim.reviewed' and producer_id=%s",
         (WORKSPACE_ID, USER_ID),
     ).fetchone()[0]
+    expected_confidence = Decimal("0.55")
     assert new_belief_id == current[0]
     assert current[1] == "belief"
-    assert current[2] == 0.55
+    assert current[2] == expected_confidence
     assert current[3] is True
     assert previous[0] == BELIEF_ID
     assert previous[1] == "fact"
     assert previous[2] == new_belief_id
     assert previous[3] is False
-    assert claim_status == ("contested", 0.55)
+    assert claim_status == ("contested", expected_confidence)
     assert review_event == 1
     conn.rollback()
 

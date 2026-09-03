@@ -28,9 +28,19 @@ class ReasoningGateway:
                 "openrouter",
             )
         if selected.startswith("openai/"):
-            return "https://api.openai.com/v1", settings.openai_api_key or "", selected.removeprefix("openai/"), "openai"
+            return (
+                "https://api.openai.com/v1",
+                settings.openai_api_key or "",
+                selected.removeprefix("openai/"),
+                "openai",
+            )
         if settings.openrouter_api_key:
-            return "https://openrouter.ai/api/v1", settings.openrouter_api_key, selected, "openrouter"
+            return (
+                "https://openrouter.ai/api/v1",
+                settings.openrouter_api_key,
+                selected,
+                "openrouter",
+            )
         return "https://api.openai.com/v1", settings.openai_api_key or "", selected, "openai"
 
     async def complete(self, *, question: str, context: str = "", model: str | None = None) -> dict[str, Any]:

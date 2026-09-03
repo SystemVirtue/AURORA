@@ -34,7 +34,7 @@ def extract_candidate_claims(text: str, *, max_claims: int = 12) -> list[Candida
             r"\s+(?:is|are|was|were|has|have|had|uses|contains|supports|requires|means)\s+",
             remainder,
             maxsplit=1,
-            flags=re.I,
+            flags=re.IGNORECASE,
         )
         if len(parts) == 2:
             predicate = "is"

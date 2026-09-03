@@ -4,11 +4,13 @@ import uuid
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from aurora.core import settings
 
 router = APIRouter(prefix="/v1/claims", tags=["claims"])
+bearer = HTTPBearer(auto_error=False)
 
 
 class ClaimReviewRequest(BaseModel):
@@ -22,9 +24,12 @@ class ClaimReviewRequest(BaseModel):
 def review_claim(
     claim_id: uuid.UUID,
     request: ClaimReviewRequest,
-    user_id: uuid.UUID,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
 ) -> dict:
-    """Thin persistence adapter; the database function owns revision semantics."""
+    """Thin adapter; the database function owns revision and temporal semantics."""
+    from apps.api.main import current_user
+
+    user_id = current_user(credentials)
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
     with psycopg.connect(settings.database_url) as conn:
@@ -34,6 +39,12 @@ def review_claim(
         ).fetchone()
         if not member:
             raise HTTPException(403, "User is not a member of this workspace")
+        claim = conn.execute(
+            "select 1 from public.claims where id=%s and workspace_id=%s",
+            (claim_id, request.workspace_id),
+        ).fetchone()
+        if not claim:
+            raise HTTPException(404, "Claim not found")
         try:
             belief_id = conn.execute(
                 "select public.revise_claim(%s,%s,%s,%s,%s)",
@@ -49,9 +60,3 @@ def review_claim(
         "belief_id": str(belief_id) if belief_id else None,
         "reviewed_by": str(user_id),
     }
-
-
-def current_user_dependency():
-    """Imported lazily to avoid a module cycle with the API application."""
-    from apps.api.main import current_user
-    return Depends(current_user)

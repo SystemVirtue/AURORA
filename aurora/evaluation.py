@@ -94,11 +94,11 @@ def default_cases() -> tuple[BenchmarkCase, ...]:
         ),
         BenchmarkCase(
             "unsupported_claim_rejected", "Was the migration risk-free?", ("e4",),
-            ("migration", "risk"), ("risk-free", "guaranteed"),
+            ("migration", "risk"), ("guaranteed safe",),
             Contribution("baseline", "The migration was risk-free and guaranteed safe.", evidence_ids=("e4",)),
             (Contribution("a", "The migration completed successfully; the evidence does not establish zero risk.", evidence_ids=("e4",)),
              Contribution("b", "The migration completed, but risk-free is unsupported.", evidence_ids=("e4",))),
-            "The migration completed successfully, but the supplied evidence does not establish that it was risk-free or guaranteed safe.",
+            "The migration completed successfully, but the supplied evidence does not establish that it was risk-free.",
         ),
         BenchmarkCase(
             "conclusion_changes", "Is the old configuration still active?", ("e5", "e6"),

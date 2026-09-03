@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from pathlib import Path
 
 import psycopg
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from aurora.cognition import (
@@ -45,6 +47,11 @@ class ReindexRequest(BaseModel):
     workspace_id: uuid.UUID
     document_id: uuid.UUID | None = None
     batch_size: int = Field(default=32, ge=1, le=128)
+
+
+@app.get("/", include_in_schema=False)
+def workspace_ui() -> FileResponse:
+    return FileResponse(Path(__file__).resolve().parents[1] / "web" / "index.html")
 
 
 @app.get("/health")
@@ -109,7 +116,7 @@ def ingest_document(request: DocumentRequest) -> dict:
 
 @app.post("/v1/reindex/embeddings")
 async def reindex_embeddings(request: ReindexRequest) -> dict[str, int]:
-    """Backfill the rebuildable vector projection without changing authoritative documents."""
+    """Backfill the rebuildable vector projection without changing source documents."""
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
     gateway = ReasoningGateway()

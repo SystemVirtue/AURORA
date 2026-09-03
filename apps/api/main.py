@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from apps.api.continuity_routes import router as continuity_router
 from apps.api.provenance_routes import router as provenance_router
 from apps.api.revision_routes import router as revision_router
 from aurora.claims import extract_candidate_claims, persist_candidate_claims
@@ -110,6 +111,7 @@ def _relevant_contradiction_count(conn, workspace_id: uuid.UUID, question: str) 
 
 app.include_router(revision_router)
 app.include_router(provenance_router)
+app.include_router(continuity_router)
 
 
 @app.get("/", include_in_schema=False)
@@ -302,8 +304,7 @@ async def ask(
         reasoning_run_id = uuid.uuid4()
         quorum = result.get("quorum")
         metadata = {
-            "correlation_id": str(correlation_id),
-            "retrieval": retrieved,
+            "correlation_id": str(correlation_id), "retrieval": retrieved,
             "contradiction_count": contradiction_count,
             "warrant": quorum.get("warrant") if quorum else warrant,
         }
@@ -313,11 +314,9 @@ async def ask(
             """insert into public.reasoning_runs
             (id,workspace_id,session_id,question,mode,status,answer,confidence,started_at,completed_at,metadata)
             values (%s,%s,%s,%s,%s,'completed',%s,%s,%s,%s,%s::jsonb)""",
-            (
-                reasoning_run_id, request.workspace_id, session_id, request.question,
-                "quorum" if quorum else request.mode, result["answer"], result.get("confidence"),
-                result["started_at"], result["completed_at"], json.dumps(metadata),
-            ),
+            (reasoning_run_id, request.workspace_id, session_id, request.question,
+             "quorum" if quorum else request.mode, result["answer"], result.get("confidence"),
+             result["started_at"], result["completed_at"], json.dumps(metadata)),
         )
         evidence_ids = [item["evidence_id"] for item in retrieved if item.get("evidence_id")]
         if quorum:
@@ -326,29 +325,23 @@ async def ask(
                     """insert into public.model_contributions
                     (reasoning_run_id,model_id,provider,role,response,confidence,latency_ms,estimated_cost,evidence_ids)
                     values (%s,%s,%s,'quorum_contributor',%s,%s,%s,%s,%s)""",
-                    (
-                        reasoning_run_id, contributor["model"], contributor.get("provider"), contributor["response"],
-                        None, contributor.get("latency_ms"), None, contributor.get("evidence_ids", evidence_ids),
-                    ),
+                    (reasoning_run_id, contributor["model"], contributor.get("provider"), contributor["response"],
+                     None, contributor.get("latency_ms"), None, contributor.get("evidence_ids", evidence_ids)),
                 )
             conn.execute(
                 """insert into public.model_contributions
                 (reasoning_run_id,model_id,provider,role,response,confidence,latency_ms,estimated_cost,evidence_ids)
                 values (%s,%s,%s,'synthesizer',%s,%s,%s,%s,%s)""",
-                (
-                    reasoning_run_id, quorum["synthesis_model"], quorum.get("synthesis_provider"), result["answer"],
-                    result.get("confidence"), quorum.get("synthesis_latency_ms"), None, evidence_ids,
-                ),
+                (reasoning_run_id, quorum["synthesis_model"], quorum.get("synthesis_provider"), result["answer"],
+                 result.get("confidence"), quorum.get("synthesis_latency_ms"), None, evidence_ids),
             )
         else:
             conn.execute(
                 """insert into public.model_contributions
                 (reasoning_run_id,model_id,provider,role,response,confidence,latency_ms,estimated_cost,evidence_ids)
                 values (%s,%s,%s,'reasoner',%s,%s,%s,%s,%s)""",
-                (
-                    reasoning_run_id, result["model"], result.get("provider"), result["answer"],
-                    result.get("confidence"), result.get("latency_ms"), result.get("estimated_cost"), evidence_ids,
-                ),
+                (reasoning_run_id, result["model"], result.get("provider"), result["answer"],
+                 result.get("confidence"), result.get("latency_ms"), result.get("estimated_cost"), evidence_ids),
             )
         _, assistant_event_id = record_message(
             conn, workspace_id=request.workspace_id, session_id=session_id, role="assistant",
@@ -365,10 +358,8 @@ async def ask(
             """insert into public.events
             (id,workspace_id,session_id,event_type,producer_type,event_time,recorded_at,correlation_id,aggregate_type,aggregate_id,schema_version,payload)
             values (%s,%s,%s,'reasoning.completed','model',%s,%s,%s,'reasoning_run',%s,1,%s::jsonb)""",
-            (
-                assistant_event_id, request.workspace_id, session_id, result["event_time"], result["event_time"],
-                correlation_id, reasoning_run_id, json.dumps({"evidence_ids": evidence_ids}),
-            ),
+            (assistant_event_id, request.workspace_id, session_id, result["event_time"], result["event_time"],
+             correlation_id, reasoning_run_id, json.dumps({"evidence_ids": evidence_ids})),
         )
         quorum_event_id = None
         if quorum:
@@ -377,20 +368,17 @@ async def ask(
                 """insert into public.events
                 (id,workspace_id,session_id,event_type,producer_type,event_time,recorded_at,correlation_id,aggregate_type,aggregate_id,schema_version,payload)
                 values (%s,%s,%s,'reasoning.quorum_completed','system',%s,%s,%s,'reasoning_run',%s,1,%s::jsonb)""",
-                (
-                    quorum_event_id, request.workspace_id, session_id, result["event_time"], result["event_time"],
-                    correlation_id, reasoning_run_id, json.dumps({"quorum": quorum}),
-                ),
+                (quorum_event_id, request.workspace_id, session_id, result["event_time"], result["event_time"],
+                 correlation_id, reasoning_run_id, json.dumps({"quorum": quorum})),
             )
         conn.commit()
     response = {
         "session_id": str(session_id), "reasoning_run_id": str(reasoning_run_id),
         "answer": result["answer"], "evidence": retrieved, "evidence_ids": evidence_ids,
         "model": result["model"], "provider": result.get("provider"), "latency_ms": result.get("latency_ms"),
-        "trace": {
-            "correlation_id": str(correlation_id), "user_event_id": str(user_event_id),
-            "assistant_event_id": str(assistant_event_id), "warrant": quorum.get("warrant") if quorum else warrant,
-        },
+        "trace": {"correlation_id": str(correlation_id), "user_event_id": str(user_event_id),
+                  "assistant_event_id": str(assistant_event_id),
+                  "warrant": quorum.get("warrant") if quorum else warrant},
     }
     if quorum:
         response["quorum"] = quorum

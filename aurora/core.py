@@ -19,6 +19,7 @@ class Settings:
     default_model: str | None = os.getenv("AURORA_DEFAULT_MODEL")
     embedding_model: str = os.getenv("AURORA_EMBEDDING_MODEL", "text-embedding-3-small")
     reasoning_mode: str = os.getenv("AURORA_REASONING_MODE", "balanced")
+    supabase_jwt_secret: str | None = os.getenv("SUPABASE_JWT_SECRET")
 
 
 settings = Settings()
@@ -38,6 +39,7 @@ def event_envelope(
     causation_id: str | None = None,
     correlation_id: str | None = None,
     idempotency_key: str | None = None,
+    producer_id: str | None = None,
 ) -> dict[str, Any]:
     now = utcnow().isoformat()
     return {
@@ -46,6 +48,7 @@ def event_envelope(
         "session_id": session_id,
         "event_type": event_type,
         "producer_type": producer_type,
+        "producer_id": producer_id,
         "event_time": now,
         "recorded_at": now,
         "causation_id": causation_id,

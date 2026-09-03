@@ -246,14 +246,9 @@ create table public.epistemic_gaps (
   resolved_at timestamptz
 );
 
--- RLS: workspace membership is the authorization boundary.
--- Do not use USING(true)/WITH CHECK(true) for cognitive data.
-
 create or replace function public.is_workspace_member(target_workspace uuid)
 returns boolean
-language sql
-stable
-security invoker
+language sql stable security invoker
 set search_path = public
 as $$
   select exists (
@@ -291,17 +286,23 @@ using (public.is_workspace_member(id)) with check (public.is_workspace_member(id
 
 create policy member_select on public.workspace_members for select to authenticated
 using (public.is_workspace_member(workspace_id));
+-- Allow the workspace creator to establish the initial owner membership; thereafter
+-- membership changes require existing membership.
 create policy member_insert on public.workspace_members for insert to authenticated
-with check (public.is_workspace_member(workspace_id));
+with check (
+  public.is_workspace_member(workspace_id)
+  or exists (
+    select 1 from public.workspaces w
+    where w.id = workspace_id and w.created_by = (select auth.uid())
+  )
+);
 create policy member_update on public.workspace_members for update to authenticated
 using (public.is_workspace_member(workspace_id)) with check (public.is_workspace_member(workspace_id));
 create policy member_delete on public.workspace_members for delete to authenticated
 using (public.is_workspace_member(workspace_id));
 
--- Uniform workspace policies for cognitive tables.
 do $$
-declare
-  t text;
+declare t text;
 begin
   foreach t in array array['sources','sessions','events','messages','documents','claims','evidence','entities','relationships','beliefs','memories','goals','decisions','reasoning_runs','epistemic_gaps'] loop
     execute format('create policy %I_select on public.%I for select to authenticated using (public.is_workspace_member(workspace_id))', t, t);
@@ -321,8 +322,8 @@ with check (exists (select 1 from public.reasoning_runs rr where rr.id = reasoni
 create policy contribution_delete on public.model_contributions for delete to authenticated
 using (exists (select 1 from public.reasoning_runs rr where rr.id = reasoning_run_id and public.is_workspace_member(rr.workspace_id)));
 
-comment on table public.events is 'Canonical durable cognitive history. State projections must remain reconstructible from this ledger where practical.';
-comment on table public.claims is 'Atomic assertions. A model assertion remains unverified unless separately supported.';
+comment on table public.events is 'Canonical durable cognitive history.';
+comment on table public.claims is 'Atomic assertions; model assertions remain unverified unless supported.';
 comment on table public.evidence is 'First-class provenance links between claims and sources/events.';
-comment on table public.beliefs is 'Temporal cognitive state; state_type deliberately participates in the non-overlap constraint.';
-comment on table public.relationships is 'Temporal relationship versions use surrogate IDs and exclusion constraints rather than a fixed logical PK.';
+comment on table public.beliefs is 'Temporal cognitive state; state_type participates in temporal non-overlap.';
+comment on table public.relationships is 'Temporal relationship versions use surrogate IDs plus exclusion constraints.';

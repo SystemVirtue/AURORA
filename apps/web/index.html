@@ -10,7 +10,8 @@
     button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
     .card{background:white;border:1px solid #ddd;border-radius:10px;padding:18px;margin-top:16px}.answer{white-space:pre-wrap;line-height:1.5}
     pre{white-space:pre-wrap;overflow:auto}.muted{color:#666}.warning{border-left:4px solid #b55;padding-left:12px}.claim{border:1px solid #ddd;padding:10px;margin:8px 0;border-radius:6px}
-    .provenance{font-size:13px}.node{display:inline-block;border:1px solid #ccc;border-radius:6px;padding:6px;margin:3px;background:#fafafa}
+    .provenance{font-size:13px}.node{display:inline-block;border:1px solid #ccc;border-radius:6px;padding:8px;margin:3px;background:#fafafa;vertical-align:top;max-width:240px}
+    .quorum{border-left:4px solid #555;padding-left:12px}.contributor{border:1px solid #ddd;border-radius:8px;padding:10px;margin:8px 0}.metric{display:inline-block;margin:4px 8px 4px 0;padding:5px 8px;background:#f0f0f0;border-radius:5px}
     @media(max-width:700px){.grid{grid-template-columns:1fr}}
   </style>
 </head>
@@ -25,12 +26,15 @@
   <div class="grid">
     <div class="card">
       <label>Model (optional)</label><input id="model" placeholder="e.g. openrouter/...">
+      <label>Reasoning mode</label>
+      <select id="mode"><option value="balanced">Balanced — selective escalation</option><option value="fast">Fast</option><option value="deep">Deep — QUORUM</option><option value="quorum">QUORUM — explicit deliberation</option></select>
       <label>Question</label><textarea id="question" rows="8" placeholder="Ask AURORA something..."></textarea>
       <button onclick="ask()">Ask AURORA</button>
     </div>
     <div class="card"><h2>Trace</h2><pre id="trace">No reasoning run yet.</pre></div>
   </div>
   <div class="card"><h2>Answer</h2><div id="answer" class="answer"></div></div>
+  <div class="card"><h2>QUORUM deliberation</h2><div id="quorum" class="muted">No deliberation was required yet.</div></div>
   <div class="card"><h2>Evidence</h2><div id="evidence" class="muted">No evidence yet.</div></div>
   <div class="card">
     <h2>Claim inspection</h2>
@@ -40,17 +44,34 @@
   <div class="card"><h2>Provenance graph</h2><div id="provenance" class="provenance muted">Select a claim above to inspect its provenance.</div></div>
   <script>
     function headers(){return {'Content-Type':'application/json','Authorization':'Bearer '+document.querySelector('#token').value.trim()};}
+    function pct(value){return value==null?'—':(Number(value)*100).toFixed(1)+'%';}
+    function renderQuorum(q){
+      const el=document.querySelector('#quorum');
+      if(!q){el.innerHTML='<span class="muted">Single-model reasoning. No QUORUM escalation was warranted.</span>';return;}
+      const contributors=q.contributors||[];
+      const failed=q.failed_contributors||[];
+      const disagreement=(q.disagreements||[]).map(escapeHtml).join('<br>')||'None detected by the current comparison heuristic.';
+      el.innerHTML=`<div class="quorum"><p><b>Warrant:</b> ${escapeHtml(q.warrant||'unspecified')}</p>
+        <span class="metric">Agreement: ${pct(q.agreement)}</span><span class="metric">Evidence coverage: ${pct(q.evidence_coverage)}</span><span class="metric">Collective gain: ${Number(q.collective_gain||0).toFixed(4)}</span>
+        <p><b>Independent contributors (${contributors.length})</b></p>
+        ${contributors.map(c=>`<article class="contributor"><b>${escapeHtml(c.model)}</b> <span class="muted">(${escapeHtml(c.provider||'unknown provider')}, ${escapeHtml(c.latency_ms)} ms)</span><p class="answer">${escapeHtml(c.response)}</p><small>Evidence IDs: ${(c.evidence_ids||[]).map(escapeHtml).join(', ')||'none'}</small></article>`).join('')}
+        ${failed.length?`<p><b>Failed contributors</b></p><ul>${failed.map(c=>`<li>${escapeHtml(c.model)} — ${escapeHtml(c.error)}</li>`).join('')}</ul>`:''}
+        <p><b>Disagreements</b><br>${disagreement}</p>
+        <p><b>Synthesis:</b> ${escapeHtml(q.synthesis_model||'unknown')} via ${escapeHtml(q.synthesis_provider||'unknown')} (${escapeHtml(q.synthesis_latency_ms)} ms)</p>
+      </div>`;
+    }
     async function ask(){
       const answer=document.querySelector('#answer'), evidence=document.querySelector('#evidence'), trace=document.querySelector('#trace');
-      answer.textContent='Investigating…'; evidence.textContent=''; trace.textContent='';
+      answer.textContent='Investigating…'; evidence.textContent=''; trace.textContent=''; document.querySelector('#quorum').textContent='Evaluating reasoning warrant…';
       try{
-        const body={workspace_id:document.querySelector('#workspace').value.trim(),question:document.querySelector('#question').value,model:document.querySelector('#model').value.trim()||null};
+        const body={workspace_id:document.querySelector('#workspace').value.trim(),question:document.querySelector('#question').value,model:document.querySelector('#model').value.trim()||null,mode:document.querySelector('#mode').value};
         const r=await fetch('/v1/ask',{method:'POST',headers:headers(),body:JSON.stringify(body)});
         const data=await r.json(); if(!r.ok) throw new Error(data.detail||r.statusText);
         answer.textContent=data.answer;
         trace.textContent=JSON.stringify(data.trace,null,2)+`\n\nmodel: ${data.model}\nprovider: ${data.provider}`;
+        renderQuorum(data.quorum);
         evidence.innerHTML=data.evidence.length?data.evidence.map((e,i)=>`<article><b>[${i+1}] ${escapeHtml(e.document)}</b> — chunk ${e.chunk_index}, ${e.retrieval}, score ${Number(e.score).toFixed(3)}<p>${escapeHtml(e.content)}</p><small>Evidence IDs: ${e.evidence_ids.map(escapeHtml).join(', ')}</small></article>`).join('<hr>'):'<span class="muted">No matching evidence. AURORA should treat this as an epistemic gap.</span>';
-      }catch(e){answer.textContent='Error: '+e.message;}
+      }catch(e){answer.textContent='Error: '+e.message; document.querySelector('#quorum').textContent='Reasoning failed before deliberation could be displayed.';}
     }
     async function contradictions(){
       const el=document.querySelector('#claims'); el.textContent='Scanning…';
@@ -67,7 +88,7 @@
         const ws=encodeURIComponent(document.querySelector('#workspace').value.trim());
         const r=await fetch('/v1/provenance/claims/'+encodeURIComponent(claimId)+'?workspace_id='+ws,{headers:headers()}); const data=await r.json();
         if(!r.ok) throw new Error(data.detail||r.statusText);
-        const nodes=data.nodes.map(n=>`<span class="node"><b>${escapeHtml(n.type)}</b><br>${escapeHtml(n.label||n.id)}</span>`).join('');
+        const nodes=data.nodes.map(n=>`<span class="node"><b>${escapeHtml(n.type)}</b><br>${escapeHtml(n.label||n.id)}${n.provider?`<br><small>${escapeHtml(n.provider)}</small>`:''}</span>`).join('');
         const edges=data.edges.map(e=>`<li>${escapeHtml(e.source)} → <b>${escapeHtml(e.relation)}</b> → ${escapeHtml(e.target)}</li>`).join('');
         el.innerHTML=`<p><b>Claim:</b> ${escapeHtml(data.claim_id)}</p><div>${nodes}</div><h3>Relationships</h3><ul>${edges||'<li>No relationships returned.</li>'}</ul>`;
       }catch(e){el.textContent='Error: '+e.message;}

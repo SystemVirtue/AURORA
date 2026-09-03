@@ -4,29 +4,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from aurora.cognition import chunk_text, content_hash
 from aurora.continuity import TABLES, verify_json_bundle
 
-# Parent-before-child ordering. Derived retrieval projections are deliberately excluded:
-# they can be rebuilt from authoritative documents after restoration.
 RESTORE_ORDER = [
-    "workspaces",
-    "workspace_members",
-    "sources",
-    "sessions",
-    "events",
-    "messages",
-    "documents",
-    "claims",
-    "evidence",
-    "entities",
-    "relationships",
-    "beliefs",
-    "memories",
-    "goals",
-    "decisions",
-    "reasoning_runs",
-    "model_contributions",
-    "epistemic_gaps",
+    "workspaces", "workspace_members", "sources", "sessions", "events", "messages",
+    "documents", "claims", "evidence", "entities", "relationships", "beliefs", "memories",
+    "goals", "decisions", "reasoning_runs", "model_contributions", "epistemic_gaps",
 ]
 
 AUTH_USER_FIELDS = {
@@ -48,9 +32,7 @@ def _read_table(root: Path, table: str) -> list[dict[str, Any]]:
 
 
 def _map_user(value: Any, user_id_map: dict[str, str]) -> Any:
-    if value is None:
-        return None
-    return user_id_map.get(str(value), value)
+    return None if value is None else user_id_map.get(str(value), value)
 
 
 def _mapped_row(table: str, row: dict[str, Any], user_id_map: dict[str, str]) -> dict[str, Any]:
@@ -83,8 +65,7 @@ def validate_restore_bundle(
                 if "workspace_id" in row and str(row["workspace_id"]) != str(workspace_id):
                     failures.append(f"workspace:{table}:{row.get('id', '<unknown>')}")
         if table == "workspaces" and workspace_id:
-            ids = {str(row.get("id")) for row in payload}
-            if str(workspace_id) not in ids:
+            if str(workspace_id) not in {str(row.get("id")) for row in payload}:
                 failures.append("workspace:missing")
         if table == "workspace_members" and workspace_id:
             for row in payload:
@@ -109,11 +90,7 @@ def restore_workspace(
     dry_run: bool = False,
     user_id_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Restore verified state using dependency-aware inserts and explicit auth remapping.
-
-    AURORA never exports auth credentials. User UUIDs are therefore external dependencies
-    and must be explicitly mapped to existing auth.users identities at restore time.
-    """
+    """Restore verified state with dependency-aware inserts and explicit auth remapping."""
     user_id_map = user_id_map or {}
     validation = validate_restore_bundle(source, workspace_id, user_id_map)
     if not validation["valid"]:
@@ -124,10 +101,8 @@ def restore_workspace(
         table: [_mapped_row(table, row, user_id_map) for row in _read_table(root, table)]
         for table in RESTORE_ORDER
     }
-    existing = conn.execute("select 1 from public.workspaces where id=%s", (workspace_id,)).fetchone()
-    if existing:
+    if conn.execute("select 1 from public.workspaces where id=%s", (workspace_id,)).fetchone():
         raise ValueError("workspace already exists")
-
     if dry_run:
         return {"restored": False, "dry_run": True, "rows": validation["rows"], "order": RESTORE_ORDER}
 
@@ -135,22 +110,41 @@ def restore_workspace(
     try:
         for table in RESTORE_ORDER:
             rows = rows_by_table[table]
+            inserted[table] = 0
             if not rows:
-                inserted[table] = 0
                 continue
             columns = list(rows[0].keys())
             placeholders = ",".join(["%s"] * len(columns))
             quoted = ",".join(f'"{column}"' for column in columns)
             for row in rows:
-                values = [row[column] for column in columns]
                 conn.execute(
                     f"insert into public.{table} ({quoted}) values ({placeholders})",
-                    values,
+                    [row[column] for column in columns],
                 )
             inserted[table] = len(rows)
+        rebuilt = rebuild_document_chunks(conn, workspace_id)
         conn.commit()
     except Exception:
         conn.rollback()
         raise
+    return {"restored": True, "dry_run": False, "rows": inserted,
+            "rebuilt": {"document_chunks": rebuilt}, "order": RESTORE_ORDER}
 
-    return {"restored": True, "dry_run": False, "rows": inserted, "order": RESTORE_ORDER}
+
+def rebuild_document_chunks(conn: Any, workspace_id: str) -> int:
+    """Recreate the derived chunk projection deterministically from authoritative documents."""
+    conn.execute("delete from public.document_chunks where workspace_id=%s", (workspace_id,))
+    documents = conn.execute(
+        "select id, content from public.documents where workspace_id=%s order by id", (workspace_id,)
+    ).fetchall()
+    rebuilt = 0
+    for document_id, content in documents:
+        for index, chunk in enumerate(chunk_text(content or "")):
+            conn.execute(
+                """insert into public.document_chunks
+                   (workspace_id,document_id,chunk_index,content,content_hash,token_estimate)
+                   values (%s,%s,%s,%s,%s,%s)""",
+                (workspace_id, document_id, index, chunk, content_hash(chunk), max(1, len(chunk) // 4)),
+            )
+            rebuilt += 1
+    return rebuilt

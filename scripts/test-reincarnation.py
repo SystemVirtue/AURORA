@@ -179,6 +179,45 @@ def counts(conn: psycopg.Connection) -> dict[str, int]:
     }
 
 
+def verify_belief_revision(conn: psycopg.Connection) -> None:
+    new_belief_id = conn.execute(
+        "select public.revise_claim(%s, 'contested', %s, %s, %s)",
+        (CLAIM_ID, USER_ID, 0.55, "Contradictory evidence requires a contested state."),
+    ).fetchone()[0]
+    current = conn.execute(
+        """select id, state_type, confidence, upper_inf(valid_during)
+             from public.beliefs
+            where claim_id=%s and workspace_id=%s and upper_inf(valid_during)
+            order by created_at desc limit 1""",
+        (CLAIM_ID, WORKSPACE_ID),
+    ).fetchone()
+    previous = conn.execute(
+        """select id, state_type, superseded_by, upper_inf(valid_during)
+             from public.beliefs
+            where id=%s""",
+        (BELIEF_ID,),
+    ).fetchone()
+    claim_status = conn.execute(
+        "select assertion_status, confidence from public.claims where id=%s",
+        (CLAIM_ID,),
+    ).fetchone()
+    review_event = conn.execute(
+        "select count(*) from public.events where workspace_id=%s and event_type='claim.reviewed' and producer_id=%s",
+        (WORKSPACE_ID, USER_ID),
+    ).fetchone()[0]
+    assert new_belief_id == current[0]
+    assert current[1] == "belief"
+    assert current[2] == 0.55
+    assert current[3] is True
+    assert previous[0] == BELIEF_ID
+    assert previous[1] == "fact"
+    assert previous[2] == new_belief_id
+    assert previous[3] is False
+    assert claim_status == ("contested", 0.55)
+    assert review_event == 1
+    conn.rollback()
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="aurora-reincarnation-") as temp_dir:
         bundle = Path(temp_dir) / "bundle"
@@ -212,8 +251,9 @@ def main() -> None:
                 "select content from public.document_chunks where document_id=%s order by chunk_index",
                 (DOCUMENT_ID,),
             ).fetchone()[0].startswith("AURORA preserves")
+            verify_belief_revision(conn)
 
-    print("AURORA reincarnation proof: PASS")
+    print("AURORA reincarnation + belief-revision proof: PASS")
     print(f"authoritative + derived row counts: {after}")
 
 

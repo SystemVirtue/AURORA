@@ -10,6 +10,7 @@
     button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
     .card{background:white;border:1px solid #ddd;border-radius:10px;padding:18px;margin-top:16px}.answer{white-space:pre-wrap;line-height:1.5}
     pre{white-space:pre-wrap;overflow:auto}.muted{color:#666}.warning{border-left:4px solid #b55;padding-left:12px}.claim{border:1px solid #ddd;padding:10px;margin:8px 0;border-radius:6px}
+    .provenance{font-size:13px}.node{display:inline-block;border:1px solid #ccc;border-radius:6px;padding:6px;margin:3px;background:#fafafa}
     @media(max-width:700px){.grid{grid-template-columns:1fr}}
   </style>
 </head>
@@ -36,6 +37,7 @@
     <button onclick="contradictions()">Find contradictions</button>
     <div id="claims" class="muted">No contradiction scan yet.</div>
   </div>
+  <div class="card"><h2>Provenance graph</h2><div id="provenance" class="provenance muted">Select a claim above to inspect its provenance.</div></div>
   <script>
     function headers(){return {'Content-Type':'application/json','Authorization':'Bearer '+document.querySelector('#token').value.trim()};}
     async function ask(){
@@ -56,7 +58,18 @@
         const ws=encodeURIComponent(document.querySelector('#workspace').value.trim());
         const r=await fetch('/v1/claims/contradictions?workspace_id='+ws,{headers:headers()}); const data=await r.json();
         if(!r.ok) throw new Error(data.detail||r.statusText);
-        el.innerHTML=data.contradictions.length?data.contradictions.map(c=>`<div class="claim"><b>${escapeHtml(c.subject)}</b> — ${escapeHtml(c.predicate)}<br>${escapeHtml(c.object)} <b>vs</b> ${escapeHtml(c.opposing_object)}<br><small>${escapeHtml(c.claim_id)} ↔ ${escapeHtml(c.opposing_claim_id)}</small></div>`).join(''):'No competing non-rejected assertions detected.';
+        el.innerHTML=data.contradictions.length?data.contradictions.map(c=>`<div class="claim"><b>${escapeHtml(c.subject)}</b> — ${escapeHtml(c.predicate)}<br>${escapeHtml(c.object)} <b>vs</b> ${escapeHtml(c.opposing_object)}<br><small>${escapeHtml(c.claim_id)} ↔ ${escapeHtml(c.opposing_claim_id)}</small><br><button onclick="inspectProvenance('${escapeHtml(c.claim_id)}')">Inspect provenance</button></div>`).join(''):'No competing non-rejected assertions detected.';
+      }catch(e){el.textContent='Error: '+e.message;}
+    }
+    async function inspectProvenance(claimId){
+      const el=document.querySelector('#provenance'); el.textContent='Loading provenance…';
+      try{
+        const ws=encodeURIComponent(document.querySelector('#workspace').value.trim());
+        const r=await fetch('/v1/provenance/claims/'+encodeURIComponent(claimId)+'?workspace_id='+ws,{headers:headers()}); const data=await r.json();
+        if(!r.ok) throw new Error(data.detail||r.statusText);
+        const nodes=data.nodes.map(n=>`<span class="node"><b>${escapeHtml(n.type)}</b><br>${escapeHtml(n.label||n.id)}</span>`).join('');
+        const edges=data.edges.map(e=>`<li>${escapeHtml(e.source)} → <b>${escapeHtml(e.relation)}</b> → ${escapeHtml(e.target)}</li>`).join('');
+        el.innerHTML=`<p><b>Claim:</b> ${escapeHtml(data.claim_id)}</p><div>${nodes}</div><h3>Relationships</h3><ul>${edges||'<li>No relationships returned.</li>'}</ul>`;
       }catch(e){el.textContent='Error: '+e.message;}
     }
     function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}

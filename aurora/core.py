@@ -20,6 +20,11 @@ class Settings:
     embedding_model: str = os.getenv("AURORA_EMBEDDING_MODEL", "text-embedding-3-small")
     reasoning_mode: str = os.getenv("AURORA_REASONING_MODE", "balanced")
     supabase_jwt_secret: str | None = os.getenv("SUPABASE_JWT_SECRET")
+    cors_origins: str = os.getenv("AURORA_CORS_ORIGINS", "")
+
+    @property
+    def allowed_cors_origins(self) -> list[str]:
+        return [origin.strip().rstrip("/") for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 settings = Settings()

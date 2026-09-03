@@ -1,7 +1,7 @@
 import json
 
 from aurora.continuity import export_json_bundle
-from aurora.continuity_restore import RESTORE_ORDER, validate_restore_bundle
+from aurora.continuity_restore import RESTORE_ORDER, _parse_range, validate_restore_bundle
 
 
 def test_restore_validation_accepts_verified_workspace_bundle(tmp_path):
@@ -56,3 +56,11 @@ def test_restore_order_places_dependencies_before_dependants():
     assert RESTORE_ORDER.index("documents") < RESTORE_ORDER.index("claims")
     assert RESTORE_ORDER.index("claims") < RESTORE_ORDER.index("evidence")
     assert RESTORE_ORDER.index("reasoning_runs") < RESTORE_ORDER.index("model_contributions")
+
+
+def test_parse_postgres_range_with_unbounded_upper_value():
+    value = "[2026-09-03 03:35:34.750000+00:00, None)"
+    parsed = _parse_range(value)
+    assert parsed.lower.isoformat() == "2026-09-03T03:35:34.750000+00:00"
+    assert parsed.upper is None
+    assert parsed.bounds == "[)"

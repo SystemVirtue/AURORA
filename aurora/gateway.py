@@ -21,37 +21,21 @@ class ReasoningGateway:
         if not selected:
             raise ReasoningError("AURORA_DEFAULT_MODEL is not configured")
         if selected.startswith("openrouter/"):
-            return (
-                "https://openrouter.ai/api/v1",
-                settings.openrouter_api_key or "",
-                selected.removeprefix("openrouter/"),
-                "openrouter",
-            )
+            return "https://openrouter.ai/api/v1", settings.openrouter_api_key or "", selected.removeprefix("openrouter/"), "openrouter"
         if selected.startswith("openai/"):
-            return (
-                "https://api.openai.com/v1",
-                settings.openai_api_key or "",
-                selected.removeprefix("openai/"),
-                "openai",
-            )
+            return "https://api.openai.com/v1", settings.openai_api_key or "", selected.removeprefix("openai/"), "openai"
         if settings.openrouter_api_key:
-            return (
-                "https://openrouter.ai/api/v1",
-                settings.openrouter_api_key,
-                selected,
-                "openrouter",
-            )
+            return "https://openrouter.ai/api/v1", settings.openrouter_api_key, selected, "openrouter"
         return "https://api.openai.com/v1", settings.openai_api_key or "", selected, "openai"
 
     async def complete(self, *, question: str, context: str = "", model: str | None = None) -> dict[str, Any]:
         base, key, actual_model, provider = self._endpoint(model)
         if not key:
             raise ReasoningError("No API key configured for the selected provider")
-
         system = (
-            "You are an AURORA reasoning contributor. Separate supported claims from "
-            "uncertainty. Never imply that a model assertion is independently verified. "
-            "Return a concise answer and explicitly state material uncertainty."
+            "You are an AURORA reasoning contributor. Separate supported claims from uncertainty. "
+            "Never imply that a model assertion is independently verified. Return a concise answer "
+            "and explicitly state material uncertainty."
         )
         prompt = question if not context else f"Evidence/context:\n{context}\n\nQuestion:\n{question}"
         started = time.perf_counter()
@@ -59,56 +43,27 @@ class ReasoningGateway:
             response = await client.post(
                 f"{base}/chat/completions",
                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                json={
-                    "model": actual_model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": prompt},
-                    ],
-                },
+                json={"model": actual_model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]},
             )
         if response.is_error:
             raise ReasoningError(f"Provider error {response.status_code}: {response.text[:500]}")
         data = response.json()
         text = data["choices"][0]["message"]["content"]
-        return {
-            "model": actual_model,
-            "provider": provider,
-            "response": text,
-            "latency_ms": round((time.perf_counter() - started) * 1000),
-            "raw": data,
-        }
+        return {"model": actual_model, "provider": provider, "response": text, "latency_ms": round((time.perf_counter() - started) * 1000), "raw": data}
 
-    async def reason(
-        self,
-        *,
-        question: str,
-        context: list[dict[str, Any]] | None = None,
-        model: str | None = None,
-        mode: str = "balanced",
-    ) -> dict[str, Any]:
+    async def reason(self, *, question: str, context: list[dict[str, Any]] | None = None, model: str | None = None, mode: str = "balanced") -> dict[str, Any]:
         """Execute one provider call and normalize it into AURORA's reasoning contract."""
         started_at = datetime.now(UTC)
-        context_text = "\n\n".join(
-            f"[Evidence {item.get('evidence_id', 'unknown')}] {item.get('content', '')}"
-            for item in (context or [])
-        )
-        if mode not in {"fast", "balanced", "deep"}:
+        context_text = "\n\n".join(f"[Evidence {item.get('evidence_id', 'unknown')}] {item.get('content', '')}" for item in (context or []))
+        if mode not in {"fast", "balanced", "deep", "quorum"}:
             raise ReasoningError(f"Unsupported reasoning mode: {mode}")
         result = await self.complete(question=question, context=context_text, model=model)
         completed_at = datetime.now(UTC)
         return {
-            "model": result["model"],
-            "provider": result["provider"],
-            "answer": result["response"],
-            "confidence": None,
-            "latency_ms": result["latency_ms"],
-            "estimated_cost": None,
-            "started_at": started_at,
-            "completed_at": completed_at,
-            "event_time": completed_at,
-            "mode": mode,
-            "raw": result["raw"],
+            "model": result["model"], "provider": result["provider"], "answer": result["response"],
+            "confidence": None, "latency_ms": result["latency_ms"], "estimated_cost": None,
+            "started_at": started_at, "completed_at": completed_at, "event_time": completed_at,
+            "mode": mode, "raw": result["raw"],
         }
 
     async def embed(self, texts: list[str], model: str | None = None) -> dict[str, Any]:
@@ -138,8 +93,4 @@ class ReasoningGateway:
         if response.is_error:
             raise ReasoningError(f"Embedding provider error {response.status_code}: {response.text[:500]}")
         data = response.json()
-        return {
-            "model": actual_model,
-            "provider": provider,
-            "embeddings": [item["embedding"] for item in sorted(data["data"], key=lambda item: item["index"])],
-        }
+        return {"model": actual_model, "provider": provider, "embeddings": [item["embedding"] for item in sorted(data["data"], key=lambda item: item["index"])]}

@@ -1,7 +1,5 @@
 """Run the deterministic QUORUM benchmark without provider/API calls."""
 
-from __future__ import annotations
-
 import json
 
 from aurora.evaluation import run_benchmark

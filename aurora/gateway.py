@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -62,6 +63,38 @@ class ReasoningGateway:
             "response": text,
             "latency_ms": round((time.perf_counter() - started) * 1000),
             "raw": data,
+        }
+
+    async def reason(
+        self,
+        *,
+        question: str,
+        context: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        mode: str = "balanced",
+    ) -> dict[str, Any]:
+        """Execute one provider call and normalize it into AURORA's reasoning contract."""
+        started_at = datetime.now(timezone.utc)
+        context_text = "\n\n".join(
+            f"[Evidence {item.get('evidence_id', 'unknown')}] {item.get('content', '')}"
+            for item in (context or [])
+        )
+        if mode not in {"fast", "balanced", "deep"}:
+            raise ReasoningError(f"Unsupported reasoning mode: {mode}")
+        result = await self.complete(question=question, context=context_text, model=model)
+        completed_at = datetime.now(timezone.utc)
+        return {
+            "model": result["model"],
+            "provider": result["provider"],
+            "answer": result["response"],
+            "confidence": None,
+            "latency_ms": result["latency_ms"],
+            "estimated_cost": None,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "event_time": completed_at,
+            "mode": mode,
+            "raw": result["raw"],
         }
 
     async def embed(self, texts: list[str], model: str | None = None) -> dict[str, Any]:

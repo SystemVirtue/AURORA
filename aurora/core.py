@@ -17,6 +17,7 @@ class Settings:
     openrouter_api_key: str | None = os.getenv("OPENROUTER_API_KEY")
     openai_api_key: str | None = os.getenv("OPENAI_API_KEY")
     default_model: str | None = os.getenv("AURORA_DEFAULT_MODEL")
+    embedding_model: str = os.getenv("AURORA_EMBEDDING_MODEL", "text-embedding-3-small")
     reasoning_mode: str = os.getenv("AURORA_REASONING_MODE", "balanced")
 
 

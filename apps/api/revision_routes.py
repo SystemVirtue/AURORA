@@ -48,7 +48,7 @@ def review_claim(
             raise HTTPException(404, "Claim not found")
         try:
             belief_id = conn.execute(
-                "select public.revise_claim(%s,%s,%s,%s,%s)",
+                "select public.revise_claim(%s,%s,%s,%s::numeric,%s)",
                 (claim_id, request.status, user_id, request.confidence, request.rationale),
             ).fetchone()[0]
             conn.commit()

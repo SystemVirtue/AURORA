@@ -29,6 +29,13 @@ RESTORE_ORDER = [
     "epistemic_gaps",
 ]
 
+AUTH_USER_FIELDS = {
+    "workspaces": ("created_by",),
+    "workspace_members": ("user_id",),
+    "sessions": ("user_id",),
+    "events": ("producer_id",),
+}
+
 
 def _read_table(root: Path, table: str) -> list[dict[str, Any]]:
     path = root / f"{table}.json"
@@ -40,14 +47,33 @@ def _read_table(root: Path, table: str) -> list[dict[str, Any]]:
     return payload
 
 
-def validate_restore_bundle(source: str | Path, workspace_id: str | None = None) -> dict[str, Any]:
-    """Validate integrity, schema inventory, and optional workspace scope before restore."""
+def _map_user(value: Any, user_id_map: dict[str, str]) -> Any:
+    if value is None:
+        return None
+    return user_id_map.get(str(value), value)
+
+
+def _mapped_row(table: str, row: dict[str, Any], user_id_map: dict[str, str]) -> dict[str, Any]:
+    result = dict(row)
+    for field in AUTH_USER_FIELDS.get(table, ()):
+        if field in result:
+            result[field] = _map_user(result[field], user_id_map)
+    return result
+
+
+def validate_restore_bundle(
+    source: str | Path,
+    workspace_id: str | None = None,
+    user_id_map: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Validate integrity, schema inventory, tenant scope, and auth dependencies."""
     root = Path(source)
     integrity = verify_json_bundle(root)
     failures = list(integrity["failures"])
     if not integrity["valid"]:
         return {"valid": False, "failures": failures, "rows": {}}
 
+    user_id_map = user_id_map or {}
     rows: dict[str, int] = {}
     for table in RESTORE_ORDER:
         payload = _read_table(root, table)
@@ -64,6 +90,11 @@ def validate_restore_bundle(source: str | Path, workspace_id: str | None = None)
             for row in payload:
                 if str(row.get("workspace_id")) != str(workspace_id):
                     failures.append(f"workspace:workspace_members:{row.get('user_id', '<unknown>')}")
+        for field in AUTH_USER_FIELDS.get(table, ()):
+            for row in payload:
+                value = row.get(field)
+                if value is not None and str(value) not in user_id_map:
+                    failures.append(f"auth_dependency:{table}:{field}:{value}")
 
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("authoritative_tables") != TABLES:
@@ -71,18 +102,28 @@ def validate_restore_bundle(source: str | Path, workspace_id: str | None = None)
     return {"valid": not failures, "failures": failures, "rows": rows, "order": RESTORE_ORDER}
 
 
-def restore_workspace(conn: Any, source: str | Path, workspace_id: str, dry_run: bool = False) -> dict[str, Any]:
-    """Restore a verified workspace using dependency-aware inserts.
+def restore_workspace(
+    conn: Any,
+    source: str | Path,
+    workspace_id: str,
+    dry_run: bool = False,
+    user_id_map: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Restore verified state using dependency-aware inserts and explicit auth remapping.
 
-    Existing rows with the same primary keys are rejected rather than silently merged.
-    Embeddings/document_chunks are derived state and are intentionally rebuilt later.
+    AURORA never exports auth credentials. User UUIDs are therefore external dependencies
+    and must be explicitly mapped to existing auth.users identities at restore time.
     """
-    validation = validate_restore_bundle(source, workspace_id)
+    user_id_map = user_id_map or {}
+    validation = validate_restore_bundle(source, workspace_id, user_id_map)
     if not validation["valid"]:
         raise ValueError("restore validation failed: " + ", ".join(validation["failures"]))
 
     root = Path(source)
-    rows_by_table = {table: _read_table(root, table) for table in RESTORE_ORDER}
+    rows_by_table = {
+        table: [_mapped_row(table, row, user_id_map) for row in _read_table(root, table)]
+        for table in RESTORE_ORDER
+    }
     existing = conn.execute("select 1 from public.workspaces where id=%s", (workspace_id,)).fetchone()
     if existing:
         raise ValueError("workspace already exists")

@@ -12,11 +12,17 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from apps.api.revision_routes import router as revision_router
 from aurora.claims import extract_candidate_claims, persist_candidate_claims
-from aurora.cognition import create_source_and_document, merge_retrieval_results, record_message, retrieve_lexical, retrieve_semantic
+from aurora.cognition import (
+    create_source_and_document,
+    merge_retrieval_results,
+    record_message,
+    retrieve_lexical,
+    retrieve_semantic,
+)
 from aurora.core import event_envelope, settings
 from aurora.gateway import ReasoningError, ReasoningGateway
-from apps.api.revision_routes import router as revision_router
 
 app = FastAPI(title="AURORA", version="0.6.0")
 bearer = HTTPBearer(auto_error=False)
@@ -48,7 +54,7 @@ class ReindexRequest(BaseModel):
     batch_size: int = Field(default=32, ge=1, le=128)
 
 
-def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> uuid.UUID:
+def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> uuid.UUID:  # noqa: B008
     """Validate a Supabase JWT and return its immutable auth.users subject."""
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(401, "Bearer authentication required")
@@ -108,7 +114,9 @@ def health_db() -> dict[str, str]:
 
 
 @app.get("/v1/claims/contradictions")
-def claim_contradictions(workspace_id: uuid.UUID, user_id: uuid.UUID = Depends(current_user)) -> dict:
+def claim_contradictions(
+    workspace_id: uuid.UUID, user_id: uuid.UUID = Depends(current_user)  # noqa: B008
+) -> dict:
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
     with psycopg.connect(settings.database_url) as conn:
@@ -124,7 +132,9 @@ def claim_contradictions(workspace_id: uuid.UUID, user_id: uuid.UUID = Depends(c
 
 
 @app.post("/v1/sessions")
-def create_session(request: SessionRequest, user_id: uuid.UUID = Depends(current_user)) -> dict[str, str]:
+def create_session(
+    request: SessionRequest, user_id: uuid.UUID = Depends(current_user)  # noqa: B008
+) -> dict[str, str]:
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
     session_id = uuid.uuid4()
@@ -139,24 +149,20 @@ def create_session(request: SessionRequest, user_id: uuid.UUID = Depends(current
 
 
 @app.post("/v1/documents")
-def ingest_document(request: DocumentRequest, user_id: uuid.UUID = Depends(current_user)) -> dict:
+def ingest_document(
+    request: DocumentRequest, user_id: uuid.UUID = Depends(current_user)  # noqa: B008
+) -> dict:
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
     with psycopg.connect(settings.database_url) as conn:
         require_workspace_access(conn, request.workspace_id, user_id)
         source_id, document_id = create_source_and_document(
-            conn,
-            workspace_id=request.workspace_id,
-            name=request.name,
-            content=request.content,
-            mime_type=request.mime_type,
+            conn, workspace_id=request.workspace_id, name=request.name,
+            content=request.content, mime_type=request.mime_type,
         )
         event = event_envelope(
-            event_type="document.ingested",
-            producer_type="human",
-            producer_id=str(user_id),
-            workspace_id=str(request.workspace_id),
-            correlation_id=str(uuid.uuid4()),
+            event_type="document.ingested", producer_type="human", producer_id=str(user_id),
+            workspace_id=str(request.workspace_id), correlation_id=str(uuid.uuid4()),
             payload={"document_id": str(document_id), "source_id": str(source_id), "name": request.name},
         )
         conn.execute(
@@ -167,11 +173,8 @@ def ingest_document(request: DocumentRequest, user_id: uuid.UUID = Depends(curre
         event_id = uuid.UUID(event["id"])
         candidates = extract_candidate_claims(request.content)
         claim_ids = persist_candidate_claims(
-            conn,
-            workspace_id=request.workspace_id,
-            source_id=source_id,
-            event_id=event_id,
-            text=request.content,
+            conn, workspace_id=request.workspace_id, source_id=source_id,
+            event_id=event_id, text=request.content,
         )
         for claim, claim_id in zip(candidates, claim_ids):
             conn.execute(
@@ -184,16 +187,15 @@ def ingest_document(request: DocumentRequest, user_id: uuid.UUID = Depends(curre
             "select count(*) from public.document_chunks where document_id=%s", (document_id,)
         ).fetchone()[0]
     return {
-        "document_id": str(document_id),
-        "source_id": str(source_id),
-        "chunks": count,
-        "candidate_claims": len(claim_ids),
-        "claims_are_unverified": True,
+        "document_id": str(document_id), "source_id": str(source_id), "chunks": count,
+        "candidate_claims": len(claim_ids), "claims_are_unverified": True,
     }
 
 
 @app.post("/v1/reindex/embeddings")
-async def reindex_embeddings(request: ReindexRequest, user_id: uuid.UUID = Depends(current_user)) -> dict[str, int]:
+async def reindex_embeddings(
+    request: ReindexRequest, user_id: uuid.UUID = Depends(current_user)  # noqa: B008
+) -> dict[str, int]:
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
     gateway = ReasoningGateway()
@@ -230,7 +232,9 @@ async def reindex_embeddings(request: ReindexRequest, user_id: uuid.UUID = Depen
 
 
 @app.post("/v1/ask")
-async def ask(request: AskRequest, user_id: uuid.UUID = Depends(current_user)) -> dict:
+async def ask(
+    request: AskRequest, user_id: uuid.UUID = Depends(current_user)  # noqa: B008
+) -> dict:
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
     session_id = request.session_id or uuid.uuid4()
@@ -246,13 +250,8 @@ async def ask(request: AskRequest, user_id: uuid.UUID = Depends(current_user)) -
                 (session_id, request.workspace_id, user_id, request.question[:100]),
             )
         _, user_event_id = record_message(
-            conn,
-            workspace_id=request.workspace_id,
-            session_id=session_id,
-            role="user",
-            content=request.question,
-            source_id=None,
-            correlation_id=correlation_id,
+            conn, workspace_id=request.workspace_id, session_id=session_id, role="user",
+            content=request.question, source_id=None, correlation_id=correlation_id,
         )
         lexical = retrieve_lexical(conn, workspace_id=request.workspace_id, question=request.question)
         semantic: list[dict] = []
@@ -261,7 +260,9 @@ async def ask(request: AskRequest, user_id: uuid.UUID = Depends(current_user)) -
                 embedding_result = await gateway.embed([request.question])
                 embedding = embedding_result["embeddings"][0]
                 if len(embedding) == 1536:
-                    semantic = retrieve_semantic(conn, workspace_id=request.workspace_id, embedding=embedding)
+                    semantic = retrieve_semantic(
+                        conn, workspace_id=request.workspace_id, embedding=embedding
+                    )
             except ReasoningError:
                 semantic = []
         evidence = merge_retrieval_results(lexical, semantic)
@@ -294,10 +295,8 @@ async def ask(request: AskRequest, user_id: uuid.UUID = Depends(current_user)) -
                 run_id, request.workspace_id, session_id, request.question, request.mode,
                 result["response"],
                 json.dumps({
-                    "evidence_count": len(evidence),
-                    "lexical_count": len(lexical),
-                    "semantic_count": len(semantic),
-                    "evidence_ids": [str(x) for x in evidence_ids],
+                    "evidence_count": len(evidence), "lexical_count": len(lexical),
+                    "semantic_count": len(semantic), "evidence_ids": [str(x) for x in evidence_ids],
                 }),
             ),
         )
@@ -307,13 +306,8 @@ async def ask(request: AskRequest, user_id: uuid.UUID = Depends(current_user)) -
             (run_id, result["model"], result["provider"], result["response"], result["latency_ms"], evidence_ids),
         )
         _, assistant_event_id = record_message(
-            conn,
-            workspace_id=request.workspace_id,
-            session_id=session_id,
-            role="assistant",
-            content=result["response"],
-            source_id=None,
-            correlation_id=correlation_id,
+            conn, workspace_id=request.workspace_id, session_id=session_id, role="assistant",
+            content=result["response"], source_id=None, correlation_id=correlation_id,
             causation_id=user_event_id,
         )
         conn.execute(
@@ -322,10 +316,8 @@ async def ask(request: AskRequest, user_id: uuid.UUID = Depends(current_user)) -
         )
         if not evidence:
             gap = event_envelope(
-                event_type="epistemic_gap.detected",
-                producer_type="system",
-                workspace_id=str(request.workspace_id),
-                session_id=str(session_id),
+                event_type="epistemic_gap.detected", producer_type="system",
+                workspace_id=str(request.workspace_id), session_id=str(session_id),
                 correlation_id=str(correlation_id),
                 payload={"reasoning_run_id": str(run_id), "gap_type": "missing_evidence"},
             )
@@ -336,23 +328,18 @@ async def ask(request: AskRequest, user_id: uuid.UUID = Depends(current_user)) -
             )
             conn.execute(
                 """insert into public.events (id,workspace_id,session_id,event_type,producer_type,event_time,recorded_at,correlation_id,schema_version,payload)
-                values (%(id)s,%(workspace_id)s,%(session_id)s,%(event_type)s,%(producer_type)s,%(event_time)s,%(recorded_at)s,%(correlation_id)s,%(schema_version)s,%(payload)s::jsonb)""",
+                values (%(id)s,%(workspace_id)s,%(session_id)s,%(event_type)s,%(producer_type)s,%(event_time)s,%(recorded_at)s,%(schema_version)s,%(payload)s::jsonb)""",
                 {**gap, "payload": json.dumps(gap["payload"])},
             )
         conn.commit()
     return {
-        "answer": result["response"],
-        "session_id": str(session_id),
-        "reasoning_run_id": str(run_id),
-        "model": result["model"],
-        "provider": result["provider"],
-        "latency_ms": result["latency_ms"],
+        "answer": result["response"], "session_id": str(session_id),
+        "reasoning_run_id": str(run_id), "model": result["model"],
+        "provider": result["provider"], "latency_ms": result["latency_ms"],
         "evidence": evidence,
         "trace": {
-            "correlation_id": str(correlation_id),
-            "user_event": str(user_event_id),
-            "assistant_event": str(assistant_event_id),
-            "retrieval_count": len(evidence),
+            "correlation_id": str(correlation_id), "user_event": str(user_event_id),
+            "assistant_event": str(assistant_event_id), "retrieval_count": len(evidence),
             "retrieval_mode": "hybrid" if semantic else "lexical",
             "evidence_ids": [str(x) for x in evidence_ids],
         },

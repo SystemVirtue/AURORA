@@ -64,9 +64,10 @@ def validate_restore_bundle(
             for row in payload:
                 if "workspace_id" in row and str(row["workspace_id"]) != str(workspace_id):
                     failures.append(f"workspace:{table}:{row.get('id', '<unknown>')}")
-        if table == "workspaces" and workspace_id:
-            if str(workspace_id) not in {str(row.get("id")) for row in payload}:
-                failures.append("workspace:missing")
+        if table == "workspaces" and workspace_id and str(workspace_id) not in {
+            str(row.get("id")) for row in payload
+        }:
+            failures.append("workspace:missing")
         if table == "workspace_members" and workspace_id:
             for row in payload:
                 if str(row.get("workspace_id")) != str(workspace_id):
@@ -127,8 +128,13 @@ def restore_workspace(
     except Exception:
         conn.rollback()
         raise
-    return {"restored": True, "dry_run": False, "rows": inserted,
-            "rebuilt": {"document_chunks": rebuilt}, "order": RESTORE_ORDER}
+    return {
+        "restored": True,
+        "dry_run": False,
+        "rows": inserted,
+        "rebuilt": {"document_chunks": rebuilt},
+        "order": RESTORE_ORDER,
+    }
 
 
 def rebuild_document_chunks(conn: Any, workspace_id: str) -> int:

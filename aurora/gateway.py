@@ -65,7 +65,7 @@ class ReasoningGateway:
         }
 
     async def embed(self, texts: list[str], model: str | None = None) -> dict[str, Any]:
-        """Create embeddings through the same provider boundary; failures are explicit."""
+        """Create embeddings through the same provider boundary."""
         if not texts:
             return {"model": model or settings.embedding_model, "provider": None, "embeddings": []}
         if model:
@@ -74,9 +74,11 @@ class ReasoningGateway:
             key = settings.openrouter_api_key if provider == "openrouter" else settings.openai_api_key
             base = "https://openrouter.ai/api/v1" if provider == "openrouter" else "https://api.openai.com/v1"
         elif settings.openrouter_api_key:
-            actual_model, provider, key, base = settings.embedding_model, "openrouter", settings.openrouter_api_key, "https://openrouter.ai/api/v1"
+            actual_model = settings.embedding_model
+            provider, key, base = "openrouter", settings.openrouter_api_key, "https://openrouter.ai/api/v1"
         else:
-            actual_model, provider, key, base = settings.embedding_model, "openai", settings.openai_api_key or "", "https://api.openai.com/v1"
+            actual_model = settings.embedding_model
+            provider, key, base = "openai", settings.openai_api_key or "", "https://api.openai.com/v1"
         if not key:
             raise ReasoningError("No API key configured for embeddings")
         async with httpx.AsyncClient(timeout=90) as client:

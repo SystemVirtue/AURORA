@@ -11,7 +11,7 @@ as $$
   from public.claims a
   join public.claims b
     on b.workspace_id = a.workspace_id
-   and b.id <> a.id
+   and b.id > a.id
    and lower(b.subject) = lower(a.subject)
    and lower(b.predicate) = lower(a.predicate)
    and lower(b.object) <> lower(a.object)
@@ -20,4 +20,4 @@ as $$
     and b.assertion_status not in ('rejected','superseded');
 $$;
 
-comment on function public.claim_contradictions(uuid) is 'Finds competing non-rejected assertions sharing subject/predicate; it does not decide which is true.';
+comment on function public.claim_contradictions(uuid) is 'Finds canonical pairs of competing non-rejected assertions sharing subject/predicate; it does not decide which is true.';

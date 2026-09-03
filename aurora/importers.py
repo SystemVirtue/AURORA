@@ -18,9 +18,9 @@ def _message(role: Any, content: Any, source_name: str, external_id: Any = None)
     normalized_role = str(role or "user").lower()
     if normalized_role in {"human", "user"}:
         normalized_role = "user"
-    elif normalized_role in {"assistant", "model"}:
-        normalized_role = "assistant"
-    elif normalized_role not in {"system", "user", "assistant", "tool"}:
+    elif normalized_role in {"assistant", "model"} or normalized_role not in {
+        "system", "user", "assistant", "tool"
+    }:
         normalized_role = "assistant"
     if isinstance(content, list):
         content = "\n".join(
@@ -32,7 +32,12 @@ def _message(role: Any, content: Any, source_name: str, external_id: Any = None)
     text = str(content or "").strip()
     if not text:
         return None
-    return ImportedMessage(normalized_role, text, source_name, external_id=str(external_id) if external_id is not None else None)
+    return ImportedMessage(
+        normalized_role,
+        text,
+        source_name,
+        external_id=str(external_id) if external_id is not None else None,
+    )
 
 
 def import_generic_conversation(payload: list[dict[str, Any]], source_name: str) -> list[ImportedMessage]:
@@ -45,16 +50,15 @@ def import_generic_conversation(payload: list[dict[str, Any]], source_name: str)
     return result
 
 
-def import_chatgpt_export(payload: dict[str, Any] | list[dict[str, Any]], source_name: str = "ChatGPT export") -> list[ImportedMessage]:
+def import_chatgpt_export(
+    payload: dict[str, Any] | list[dict[str, Any]], source_name: str = "ChatGPT export"
+) -> list[ImportedMessage]:
     """Normalize OpenAI ChatGPT conversations.json tree exports."""
     conversations = payload if isinstance(payload, list) else payload.get("conversations", [])
     result: list[ImportedMessage] = []
     for conversation in conversations:
         mapping = conversation.get("mapping", {})
-        nodes = sorted(
-            mapping.values(),
-            key=lambda node: (node.get("message", {}).get("create_time") or 0),
-        )
+        nodes = sorted(mapping.values(), key=lambda node: (node.get("message", {}).get("create_time") or 0))
         for node in nodes:
             message = node.get("message") or {}
             author = message.get("author", {})
@@ -65,7 +69,9 @@ def import_chatgpt_export(payload: dict[str, Any] | list[dict[str, Any]], source
     return result
 
 
-def import_claude_export(payload: dict[str, Any] | list[dict[str, Any]], source_name: str = "Claude export") -> list[ImportedMessage]:
+def import_claude_export(
+    payload: dict[str, Any] | list[dict[str, Any]], source_name: str = "Claude export"
+) -> list[ImportedMessage]:
     """Normalize common Anthropic/Claude export conversation structures."""
     conversations = payload if isinstance(payload, list) else payload.get("conversations", [payload])
     result: list[ImportedMessage] = []
@@ -83,7 +89,9 @@ def import_claude_export(payload: dict[str, Any] | list[dict[str, Any]], source_
     return result
 
 
-def import_gemini_export(payload: dict[str, Any] | list[dict[str, Any]], source_name: str = "Gemini export") -> list[ImportedMessage]:
+def import_gemini_export(
+    payload: dict[str, Any] | list[dict[str, Any]], source_name: str = "Gemini export"
+) -> list[ImportedMessage]:
     """Normalize common Google Gemini Takeout conversation structures."""
     conversations = payload if isinstance(payload, list) else payload.get("conversations", [payload])
     result: list[ImportedMessage] = []

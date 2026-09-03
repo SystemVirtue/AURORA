@@ -4,17 +4,28 @@ import uuid
 
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from aurora.core import settings
 
 router = APIRouter(prefix="/v1/provenance", tags=["provenance"])
+bearer = HTTPBearer(auto_error=False)
+
+
+def authenticated_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),  # noqa: B008
+) -> uuid.UUID:
+    """Delegate JWT validation to the canonical API dependency without import-time cycles."""
+    from apps.api.main import current_user
+
+    return current_user(credentials)
 
 
 @router.get("/claims/{claim_id}")
 def claim_provenance(
     claim_id: uuid.UUID,
     workspace_id: uuid.UUID,
-    user_id: uuid.UUID = Depends("current_user"),
+    user_id: uuid.UUID = Depends(authenticated_user),  # noqa: B008
 ) -> dict:
     """Return an inspectable claim -> evidence -> source/event -> reasoning graph."""
     if not settings.database_url:
@@ -39,8 +50,8 @@ def claim_provenance(
                from public.evidence where claim_id=%s and workspace_id=%s order by id""",
             (claim_id, workspace_id),
         ).fetchall()
-        source_ids = {row[6] for row in [claim] if row[6]}
-        event_ids = {row[7] for row in [claim] if row[7]}
+        source_ids = {claim[6]} if claim[6] else set()
+        event_ids = {claim[7]} if claim[7] else set()
         source_ids.update(row[5] for row in evidence if row[5])
         event_ids.update(row[6] for row in evidence if row[6])
 
@@ -60,15 +71,18 @@ def claim_provenance(
                 (workspace_id, list(event_ids)),
             ).fetchall()
 
-        contributions = conn.execute(
-            """select mc.id, mc.reasoning_run_id, mc.model_id, mc.provider, mc.role, mc.confidence,
-                      mc.latency_ms, mc.estimated_cost
-                 from public.model_contributions mc
-                 join public.reasoning_runs rr on rr.id=mc.reasoning_run_id
-                where rr.workspace_id=%s and %s = any(mc.evidence_ids)
-                order by mc.created_at, mc.id""",
-            (workspace_id, evidence[0][0] if evidence else claim_id),
-        ).fetchall()
+        evidence_ids = [row[0] for row in evidence]
+        contributions = []
+        if evidence_ids:
+            contributions = conn.execute(
+                """select mc.id, mc.reasoning_run_id, mc.model_id, mc.provider, mc.role, mc.confidence,
+                          mc.latency_ms, mc.estimated_cost, mc.evidence_ids
+                     from public.model_contributions mc
+                     join public.reasoning_runs rr on rr.id=mc.reasoning_run_id
+                    where rr.workspace_id=%s and mc.evidence_ids && %s::uuid[]
+                    order by mc.created_at, mc.id""",
+                (workspace_id, evidence_ids),
+            ).fetchall()
 
         run_ids = [row[1] for row in contributions]
         runs = []
@@ -112,8 +126,8 @@ def claim_provenance(
                       "provider": row[3], "role": row[4], "confidence": float(row[5]) if row[5] is not None else None,
                       "latency_ms": row[6], "estimated_cost": float(row[7]) if row[7] is not None else None})
         edges.append({"source": f"reasoning_run:{row[1]}", "target": f"contribution:{row[0]}", "relation": "contributed"})
-        for ev in evidence:
-            if row[0] and ev[0] and ev[0] in []:
-                edges.append({"source": f"contribution:{row[0]}", "target": f"evidence:{ev[0]}", "relation": "used"})
+        for evidence_id in row[8] or []:
+            if evidence_id in {item[0] for item in evidence}:
+                edges.append({"source": f"contribution:{row[0]}", "target": f"evidence:{evidence_id}", "relation": "used"})
 
     return {"workspace_id": str(workspace_id), "claim_id": str(claim_id), "nodes": nodes, "edges": edges}

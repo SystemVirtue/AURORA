@@ -25,7 +25,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - run: npm install
       - run: npx supabase --version
       - run: npx supabase start
       - run: npx supabase db reset
+      - run: pip install -e .
+      - run: python scripts/test-reincarnation.py

@@ -7,7 +7,7 @@ from aurora.gateway import ReasoningError, ReasoningGateway
 
 @pytest.mark.asyncio
 async def test_reason_normalizes_provider_response(monkeypatch):
-    async def fake_complete(*, question, context="", model=None):
+    async def fake_complete(self, *, question, context="", model=None):
         assert question == "What is AURORA?"
         assert "Evidence e1" in context
         assert model == "test-model"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from pathlib import Path
 
@@ -91,6 +92,22 @@ def require_session_access(conn, session_id: uuid.UUID, workspace_id: uuid.UUID,
         raise HTTPException(404, "Session not found")
 
 
+def _question_terms(text: str) -> set[str]:
+    return {token for token in re.findall(r"[a-z0-9]{3,}", text.lower()) if token not in {"the", "and", "that", "this", "with", "from"}}
+
+
+def _relevant_contradiction_count(conn, workspace_id: uuid.UUID, question: str) -> int:
+    """Conservative MVP relevance gate: contradiction text must overlap the question."""
+    rows = conn.execute(
+        "select subject, predicate, object, opposing_object from public.claim_contradictions(%s)",
+        (workspace_id,),
+    ).fetchall()
+    terms = _question_terms(question)
+    if not terms:
+        return 0
+    return sum(1 for row in rows if terms & _question_terms(" ".join(str(value or "") for value in row)))
+
+
 app.include_router(revision_router)
 app.include_router(provenance_router)
 
@@ -175,7 +192,7 @@ def ingest_document(
         )
         conn.execute(
             """insert into public.events (id,workspace_id,event_type,producer_type,producer_id,event_time,recorded_at,correlation_id,schema_version,payload)
-            values (%(id)s,%(workspace_id)s,%(event_type)s,%(producer_type)s,%(producer_id)s,%(event_time)s,%(recorded_at)s,%(correlation_id)s,%(schema_version)s,%(payload)s::jsonb)""",
+            values (%(id)s,%(workspace_id)s,%(event_type)s,%(producer_type)s,%(producer_id)s,%(event_time)s,%(recorded_at)s,%(schema_version)s,%(payload)s::jsonb)""",
             {**event, "payload": json.dumps(event["payload"])},
         )
         event_id = uuid.UUID(event["id"])
@@ -274,33 +291,65 @@ async def ask(
                 semantic = []
         retrieved = merge_retrieval_results(lexical, semantic, limit=8)
         context = [{"content": item["content"], "evidence_id": item["evidence_id"]} for item in retrieved]
+        contradiction_count = _relevant_contradiction_count(conn, request.workspace_id, request.question)
+        warrant = "workspace_contradiction" if contradiction_count else ("missing_evidence" if not context else None)
         try:
             result = await gateway.reason(
-                question=request.question, context=context, model=request.model, mode=request.mode,
+                question=request.question, context=context, model=request.model, mode=request.mode, warrant=warrant,
             )
         except ReasoningError as exc:
             raise HTTPException(502, str(exc)) from exc
         reasoning_run_id = uuid.uuid4()
+        quorum = result.get("quorum")
+        metadata = {
+            "correlation_id": str(correlation_id),
+            "retrieval": retrieved,
+            "contradiction_count": contradiction_count,
+            "warrant": quorum.get("warrant") if quorum else warrant,
+        }
+        if quorum:
+            metadata["quorum"] = quorum
         conn.execute(
             """insert into public.reasoning_runs
             (id,workspace_id,session_id,question,mode,status,answer,confidence,started_at,completed_at,metadata)
             values (%s,%s,%s,%s,%s,'completed',%s,%s,%s,%s,%s::jsonb)""",
             (
-                reasoning_run_id, request.workspace_id, session_id, request.question, request.mode,
-                result["answer"], result.get("confidence"), result["started_at"], result["completed_at"],
-                json.dumps({"correlation_id": str(correlation_id), "retrieval": retrieved}),
+                reasoning_run_id, request.workspace_id, session_id, request.question,
+                "quorum" if quorum else request.mode, result["answer"], result.get("confidence"),
+                result["started_at"], result["completed_at"], json.dumps(metadata),
             ),
         )
-        conn.execute(
-            """insert into public.model_contributions
-            (reasoning_run_id,model_id,provider,role,response,confidence,latency_ms,estimated_cost,evidence_ids)
-            values (%s,%s,%s,'reasoner',%s,%s,%s,%s,%s)""",
-            (
-                reasoning_run_id, result["model"], result.get("provider"), result["answer"],
-                result.get("confidence"), result.get("latency_ms"), result.get("estimated_cost"),
-                [item["evidence_id"] for item in retrieved if item.get("evidence_id")],
-            ),
-        )
+        evidence_ids = [item["evidence_id"] for item in retrieved if item.get("evidence_id")]
+        if quorum:
+            for contributor in quorum["contributors"]:
+                conn.execute(
+                    """insert into public.model_contributions
+                    (reasoning_run_id,model_id,provider,role,response,confidence,latency_ms,estimated_cost,evidence_ids)
+                    values (%s,%s,%s,'quorum_contributor',%s,%s,%s,%s,%s)""",
+                    (
+                        reasoning_run_id, contributor["model"], contributor.get("provider"), contributor["response"],
+                        None, contributor.get("latency_ms"), None, contributor.get("evidence_ids", evidence_ids),
+                    ),
+                )
+            conn.execute(
+                """insert into public.model_contributions
+                (reasoning_run_id,model_id,provider,role,response,confidence,latency_ms,estimated_cost,evidence_ids)
+                values (%s,%s,%s,'synthesizer',%s,%s,%s,%s,%s)""",
+                (
+                    reasoning_run_id, quorum["synthesis_model"], quorum.get("synthesis_provider"), result["answer"],
+                    result.get("confidence"), quorum.get("synthesis_latency_ms"), None, evidence_ids,
+                ),
+            )
+        else:
+            conn.execute(
+                """insert into public.model_contributions
+                (reasoning_run_id,model_id,provider,role,response,confidence,latency_ms,estimated_cost,evidence_ids)
+                values (%s,%s,%s,'reasoner',%s,%s,%s,%s,%s)""",
+                (
+                    reasoning_run_id, result["model"], result.get("provider"), result["answer"],
+                    result.get("confidence"), result.get("latency_ms"), result.get("estimated_cost"), evidence_ids,
+                ),
+            )
         _, assistant_event_id = record_message(
             conn, workspace_id=request.workspace_id, session_id=session_id, role="assistant",
             content=result["answer"], source_id=None, correlation_id=correlation_id,
@@ -318,14 +367,32 @@ async def ask(
             values (%s,%s,%s,'reasoning.completed','model',%s,%s,%s,'reasoning_run',%s,1,%s::jsonb)""",
             (
                 assistant_event_id, request.workspace_id, session_id, result["event_time"], result["event_time"],
-                correlation_id, reasoning_run_id, json.dumps({"evidence_ids": [item["evidence_id"] for item in retrieved if item.get("evidence_id")]}),
+                correlation_id, reasoning_run_id, json.dumps({"evidence_ids": evidence_ids}),
             ),
         )
+        quorum_event_id = None
+        if quorum:
+            quorum_event_id = uuid.uuid4()
+            conn.execute(
+                """insert into public.events
+                (id,workspace_id,session_id,event_type,producer_type,event_time,recorded_at,correlation_id,aggregate_type,aggregate_id,schema_version,payload)
+                values (%s,%s,%s,'reasoning.quorum_completed','system',%s,%s,%s,'reasoning_run',%s,1,%s::jsonb)""",
+                (
+                    quorum_event_id, request.workspace_id, session_id, result["event_time"], result["event_time"],
+                    correlation_id, reasoning_run_id, json.dumps({"quorum": quorum}),
+                ),
+            )
         conn.commit()
-    return {
+    response = {
         "session_id": str(session_id), "reasoning_run_id": str(reasoning_run_id),
-        "answer": result["answer"], "evidence": retrieved,
-        "evidence_ids": [item["evidence_id"] for item in retrieved if item.get("evidence_id")],
+        "answer": result["answer"], "evidence": retrieved, "evidence_ids": evidence_ids,
         "model": result["model"], "provider": result.get("provider"), "latency_ms": result.get("latency_ms"),
-        "trace": {"correlation_id": str(correlation_id), "user_event_id": str(user_event_id), "assistant_event_id": str(assistant_event_id)},
+        "trace": {
+            "correlation_id": str(correlation_id), "user_event_id": str(user_event_id),
+            "assistant_event_id": str(assistant_event_id), "warrant": quorum.get("warrant") if quorum else warrant,
+        },
     }
+    if quorum:
+        response["quorum"] = quorum
+        response["trace"]["quorum_event_id"] = str(quorum_event_id)
+    return response

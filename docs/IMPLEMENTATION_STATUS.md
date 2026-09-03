@@ -2,38 +2,39 @@
 
 **Date:** 2026-09-03
 
-## Executable now
+## MVP progress estimate
 
-| Capability | Status | Notes |
-|---|---|---|
-| Python package | ✅ | Python 3.11+ baseline |
-| FastAPI API | ✅ | health, authenticated sessions, document ingestion, `/v1/ask` |
-| Provider-neutral gateway | ✅ | OpenAI-compatible OpenRouter/OpenAI path |
-| Persistent sessions/messages | ✅ | user + assistant messages are durable |
-| Reasoning run persistence | ✅ | run + contribution + provenance event |
-| Event envelope | ✅ | causation/correlation/schema/idempotency fields |
-| Canonical cognitive schema | ✅ | workspace, history, knowledge, cognition, reasoning |
-| Workspace authentication | ✅ | Supabase JWT subject bound to workspace membership in API |
-| Workspace RLS | ✅ schema | membership policies exist and API performs explicit tenant checks |
-| Temporal state | ✅ | valid-time + record-time ranges |
-| Relationship versioning | ✅ | surrogate IDs + exclusion constraint |
-| Facts vs beliefs | ✅ | `state_type` participates in temporal constraint |
-| Evidence links | ✅ | candidate claims receive first-class provenance evidence |
-| Document ingestion | ✅ | text ingestion + deterministic chunking + candidate claims |
-| Lexical retrieval | ✅ | PostgreSQL full-text retrieval over document chunks |
-| Hybrid retrieval | ✅ | lexical + pgvector semantic results fused by reciprocal rank |
-| pgvector projection | ✅ | embeddings are nullable/rebuildable; backfill endpoint added |
-| Epistemic gaps | ✅ initial | missing-evidence gap emitted when retrieval returns none |
-| Conversation normalization | ✅ | ChatGPT, Claude, Gemini and generic structures have adapters |
-| Candidate claims | ✅ primitive | conservative extraction; promotion remains explicitly gated |
-| Contradiction detection | ✅ | canonical competing-claim pairs exposed through API/UI |
-| Belief revision | ✅ initial | authenticated review endpoint + temporal belief versions + audit event |
-| QUORUM substrate | ✅ | contribution preservation/comparison; orchestration remains next |
-| Portable state bundle | ✅ improved | deterministic ordering + SHA-256 verification + workspace exporter primitive |
-| Inspection UI | ✅ initial | authenticated evidence and contradiction inspection |
-| Local deployment | ✅ | Supabase CLI + scripts |
-| Remote migration deployment | ✅ | dry-run then push |
-| CI | 🟡 | Supabase reset passed in prior run; latest Python lint repair is running |
+**Overall: ~72% toward the defined MVP.** This is a weighted engineering estimate, not a feature-count percentage. The remaining work is concentrated in restore/reincarnation proof, provenance inspection, selective QUORUM and final end-to-end validation.
+
+| Capability | MVP completion | Status | Notes |
+|---|---:|---|---|
+| Python package | 100% | ✅ | Python 3.11+ baseline |
+| FastAPI API | 90% | 🟢 | health, authenticated sessions, ingestion, ask |
+| Provider-neutral gateway | 70% | 🟡 | OpenAI-compatible path; richer provider routing remains |
+| Persistent sessions/messages | 90% | 🟢 | durable user + assistant history |
+| Reasoning persistence | 85% | 🟢 | runs, contributions, provenance events |
+| Canonical cognitive schema | 95% | 🟢 | core workspace/history/knowledge/cognition/reasoning substrate |
+| Workspace authentication | 90% | 🟢 | JWT subject + explicit membership checks |
+| Workspace RLS | 90% | 🟢 | no blanket policies; API also enforces tenant boundaries |
+| Temporal state | 85% | 🟢 | valid-time + record-time ranges |
+| Document ingestion | 90% | 🟢 | deterministic chunking + candidate claims |
+| Hybrid retrieval | 85% | 🟢 | lexical + pgvector reciprocal-rank fusion |
+| Claims + evidence | 80% | 🟢 | first-class provenance; promotion remains gated |
+| Contradiction detection | 80% | 🟢 | competing claims exposed through API/UI |
+| Belief revision | 75% | 🟢 | authenticated review + temporal belief versions |
+| Epistemic gaps | 70% | 🟡 | initial missing-evidence detection; richer gap resolution remains |
+| Conversation normalization | 75% | 🟡 | ChatGPT, Claude, Gemini and generic adapters |
+| Portable export | 80% | 🟢 | deterministic JSON + SHA-256 + workspace exporter |
+| Portable restore | 55% | 🟡 | dependency-aware restore, dry-run validation, auth remapping, derived chunk rebuild |
+| Reincarnation proof | 20% | 🔴 | fresh-database end-to-end test still required |
+| Inspection UI | 50% | 🟡 | evidence/contradiction inspection; provenance graph next |
+| QUORUM | 35% | 🔴 | contribution substrate exists; selective orchestration next |
+| Collective-gain evaluation | 10% | 🔴 | baseline/evaluation protocol still required |
+| CI / migration verification | 100% | 🟢 | latest Python and Supabase jobs passed |
+
+## Verified CI baseline
+
+Workflow run `33710912476` completed successfully. The Python job passed dependency installation, Ruff and pytest. The Supabase job passed local startup and a complete `supabase db reset`. This is the current correctness baseline.
 
 ## Current cognitive path
 
@@ -43,20 +44,30 @@ A real request can now follow:
 
 The path includes authenticated tenant enforcement, lexical/semantic retrieval, persistent reasoning contributions, first-class evidence IDs, candidate claim capture, contradiction detection, temporal reviewable beliefs and explicit epistemic gaps. Model assertions remain attributed contributions rather than automatic facts.
 
-## Continuity invariant
+## Continuity implementation
 
-Essential cognitive state is portable independently of the runtime, model provider, UI or machine. The state bundle records authoritative tables with deterministic JSON ordering and checksums. Retrieval embeddings remain derived/rebuildable rather than authoritative cognitive state.
+The state continuity layer now has:
+
+- deterministic authoritative-table export;
+- stable canonical row ordering;
+- SHA-256 manifest verification;
+- dependency-aware restore ordering;
+- dry-run restore validation;
+- explicit cross-workspace rejection;
+- explicit auth-user dependency mapping rather than exporting credentials;
+- deterministic rebuilding of `document_chunks` from authoritative documents;
+- a CLI restore entry point at `scripts/restore-state.py`.
+
+Embeddings remain derived state and are intentionally rebuilt after restoration. Authentication identities remain an external dependency: AURORA preserves their references but does not export credentials or attempt to clone `auth.users`.
 
 ## Next execution blocks
 
-1. Verify the current CI run and fix any remaining defects before deployment.
-2. Add richer belief-review tests, including contradiction → contested belief → revised belief history.
-3. Add authenticated workspace state export/import with dependency-aware restore and dry-run validation.
-4. Expand inspection UI from contradictions into claim → evidence → event → reasoning-run provenance graphs.
-5. Add selective QUORUM orchestration only for disagreement, uncertainty or consequential questions.
-6. Measure collective gain against single-model baselines rather than assuming more models are better.
-7. Run a fresh-database reincarnation test: ingest → ask → evidence → reasoning → export → empty DB → import → ask again.
-8. Complete the end-to-end MVP audit.
+1. Add a real fresh-database reincarnation integration test: ingest → ask → review → export → empty DB → map auth identity → import → rebuild chunks → reindex embeddings → ask again.
+2. Verify restored event/message/claim/evidence/belief/reasoning counts and provenance equivalence.
+3. Expand inspection UI into claim → evidence → event → reasoning-run provenance graphs.
+4. Add selective QUORUM orchestration only for disagreement, uncertainty or consequential questions.
+5. Define and measure collective gain against a single-model baseline.
+6. Complete the end-to-end MVP audit and freeze the MVP contract.
 
 ## Explicitly deferred
 

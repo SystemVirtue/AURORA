@@ -145,10 +145,11 @@ def merge_retrieval_results(
     for results in (lexical, semantic):
         for rank, item in enumerate(results, start=1):
             key = str(item["chunk_id"])
-            entry = fused.setdefault(key, {**item, "retrieval": "hybrid", "fusion_score": 0.0})
+            entry = fused.setdefault(
+                key, {**item, "retrieval": "hybrid", "fusion_score": 0.0}
+            )
             entry["fusion_score"] += 1.0 / (60 + rank)
-            if item["score"] > entry["score"]:
-                entry["score"] = item["score"]
+            entry["score"] = max(entry["score"], item["score"])
     return sorted(fused.values(), key=lambda item: item["fusion_score"], reverse=True)[:limit]
 
 

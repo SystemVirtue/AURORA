@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from apps.api.provenance_routes import router as provenance_router
 from apps.api.revision_routes import router as revision_router
 from aurora.claims import extract_candidate_claims, persist_candidate_claims
 from aurora.cognition import (
@@ -92,6 +93,7 @@ def require_session_access(conn, session_id: uuid.UUID, workspace_id: uuid.UUID,
 
 
 app.include_router(revision_router)
+app.include_router(provenance_router)
 
 
 @app.get("/", include_in_schema=False)
@@ -258,94 +260,65 @@ async def ask(
         if settings.openai_api_key or settings.openrouter_api_key:
             try:
                 embedding_result = await gateway.embed([request.question])
-                embedding = embedding_result["embeddings"][0]
-                if len(embedding) == 1536:
-                    semantic = retrieve_semantic(
-                        conn, workspace_id=request.workspace_id, embedding=embedding
-                    )
+                semantic = retrieve_semantic(
+                    conn, workspace_id=request.workspace_id,
+                    embedding=embedding_result["embeddings"][0], limit=8,
+                )
             except ReasoningError:
                 semantic = []
-        evidence = merge_retrieval_results(lexical, semantic)
-        evidence_ids: list[uuid.UUID] = []
-        for item in evidence:
-            ids = conn.execute(
-                """select e.id from public.evidence e join public.documents d on d.source_id=e.source_id
-                join public.document_chunks dc on dc.document_id=d.id where dc.id=%s and e.workspace_id=%s order by e.created_at""",
-                (item["chunk_id"], request.workspace_id),
-            ).fetchall()
-            item["evidence_ids"] = [r[0] for r in ids]
-            evidence_ids.extend(item["evidence_ids"])
-        evidence_ids = list(dict.fromkeys(evidence_ids))
-        context = "\n\n".join(
-            f"[Evidence {i + 1}] {item['document']} (chunk {item['chunk_index']}, score {item['score']:.3f})\n{item['content']}"
-            for i, item in enumerate(evidence)
-        )
-        conn.commit()
-    try:
-        result = await gateway.complete(question=request.question, context=context, model=request.model)
-    except ReasoningError as exc:
-        raise HTTPException(502, str(exc)) from exc
-    run_id = uuid.uuid4()
-    with psycopg.connect(settings.database_url) as conn:
-        require_workspace_access(conn, request.workspace_id, user_id)
+        retrieved = merge_retrieval_results(lexical, semantic, limit=8)
+        context = [{"content": item["content"], "evidence_id": item["evidence_id"]} for item in retrieved]
+        try:
+            result = await gateway.reason(
+                question=request.question, context=context, model=request.model, mode=request.mode,
+            )
+        except ReasoningError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        reasoning_run_id = uuid.uuid4()
         conn.execute(
-            """insert into public.reasoning_runs (id,workspace_id,session_id,question,mode,status,answer,started_at,completed_at,metadata)
-            values (%s,%s,%s,%s,%s,'completed',%s,now(),now(),%s::jsonb)""",
+            """insert into public.reasoning_runs
+            (id,workspace_id,session_id,question,mode,status,answer,confidence,started_at,completed_at,metadata)
+            values (%s,%s,%s,%s,%s,'completed',%s,%s,%s,%s,%s::jsonb)""",
             (
-                run_id, request.workspace_id, session_id, request.question, request.mode,
-                result["response"],
-                json.dumps({
-                    "evidence_count": len(evidence), "lexical_count": len(lexical),
-                    "semantic_count": len(semantic), "evidence_ids": [str(x) for x in evidence_ids],
-                }),
+                reasoning_run_id, request.workspace_id, session_id, request.question, request.mode,
+                result["answer"], result.get("confidence"), result["started_at"], result["completed_at"],
+                json.dumps({"correlation_id": str(correlation_id), "retrieval": retrieved}),
             ),
         )
         conn.execute(
-            """insert into public.model_contributions (reasoning_run_id,model_id,provider,response,latency_ms,evidence_ids)
-            values (%s,%s,%s,%s,%s,%s)""",
-            (run_id, result["model"], result["provider"], result["response"], result["latency_ms"], evidence_ids),
+            """insert into public.model_contributions
+            (reasoning_run_id,model_id,provider,role,response,confidence,latency_ms,estimated_cost,evidence_ids)
+            values (%s,%s,%s,'reasoner',%s,%s,%s,%s,%s)""",
+            (
+                reasoning_run_id, result["model"], result.get("provider"), result["answer"],
+                result.get("confidence"), result.get("latency_ms"), result.get("estimated_cost"),
+                [item["evidence_id"] for item in retrieved if item.get("evidence_id")],
+            ),
         )
         _, assistant_event_id = record_message(
             conn, workspace_id=request.workspace_id, session_id=session_id, role="assistant",
-            content=result["response"], source_id=None, correlation_id=correlation_id,
-            causation_id=user_event_id,
+            content=result["answer"], source_id=None, correlation_id=correlation_id,
         )
+        if not retrieved:
+            conn.execute(
+                """insert into public.epistemic_gaps
+                (workspace_id,reasoning_run_id,description,gap_type,severity,status)
+                values (%s,%s,%s,'missing_evidence',0.8,'open')""",
+                (request.workspace_id, reasoning_run_id, "No matching workspace evidence was retrieved."),
+            )
         conn.execute(
-            "update public.events set aggregate_type='reasoning_run', aggregate_id=%s where id=%s",
-            (run_id, assistant_event_id),
+            """insert into public.events
+            (id,workspace_id,session_id,event_type,producer_type,event_time,recorded_at,correlation_id,aggregate_type,aggregate_id,schema_version,payload)
+            values (%s,%s,%s,'reasoning.completed','model',%s,%s,%s,'reasoning_run',%s,1,%s::jsonb)""",
+            (
+                assistant_event_id, request.workspace_id, session_id, result["event_time"], result["event_time"],
+                correlation_id, reasoning_run_id, json.dumps({"evidence_ids": [item["evidence_id"] for item in retrieved if item.get("evidence_id")]}),
+            ),
         )
-        if not evidence:
-            gap = event_envelope(
-                event_type="epistemic_gap.detected", producer_type="system",
-                workspace_id=str(request.workspace_id), session_id=str(session_id),
-                correlation_id=str(correlation_id),
-                payload={"reasoning_run_id": str(run_id), "gap_type": "missing_evidence"},
-            )
-            conn.execute(
-                """insert into public.epistemic_gaps (workspace_id,reasoning_run_id,description,gap_type,severity,resolution_hint)
-                values (%s,%s,%s,'missing_evidence',1.0,'Ingest or retrieve supporting source material before treating the answer as supported.')""",
-                (request.workspace_id, run_id, "No indexed evidence matched the question."),
-            )
-            conn.execute(
-                """insert into public.events (id,workspace_id,session_id,event_type,producer_type,event_time,recorded_at,correlation_id,schema_version,payload)
-                values (%(id)s,%(workspace_id)s,%(session_id)s,%(event_type)s,%(producer_type)s,%(event_time)s,%(recorded_at)s,%(schema_version)s,%(payload)s::jsonb)""",
-                {**gap, "payload": json.dumps(gap["payload"])},
-            )
         conn.commit()
     return {
-        "answer": result["response"], "session_id": str(session_id),
-        "reasoning_run_id": str(run_id), "model": result["model"],
-        "provider": result["provider"], "latency_ms": result["latency_ms"],
-        "evidence": evidence,
-        "trace": {
-            "correlation_id": str(correlation_id), "user_event": str(user_event_id),
-            "assistant_event": str(assistant_event_id), "retrieval_count": len(evidence),
-            "retrieval_mode": "hybrid" if semantic else "lexical",
-            "evidence_ids": [str(x) for x in evidence_ids],
-        },
+        "session_id": str(session_id), "reasoning_run_id": str(reasoning_run_id),
+        "answer": result["answer"], "evidence": retrieved, "evidence_ids": [item["evidence_id"] for item in retrieved if item.get("evidence_id")],
+        "model": result["model"], "provider": result.get("provider"), "latency_ms": result.get("latency_ms"),
+        "trace": {"correlation_id": str(correlation_id), "user_event_id": str(user_event_id), "assistant_event_id": str(assistant_event_id)},
     }
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("apps.api.main:app", host=os.getenv("AURORA_HOST", "127.0.0.1"), port=int(os.getenv("AURORA_PORT", "8000")), reload=True)

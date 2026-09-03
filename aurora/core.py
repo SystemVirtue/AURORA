@@ -3,12 +3,12 @@ from __future__ import annotations
 import os
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass(frozen=True)
@@ -38,14 +38,15 @@ def event_envelope(
     correlation_id: str | None = None,
     idempotency_key: str | None = None,
 ) -> dict[str, Any]:
+    now = utcnow().isoformat()
     return {
         "id": str(new_id()),
         "workspace_id": workspace_id,
         "session_id": session_id,
         "event_type": event_type,
         "producer_type": producer_type,
-        "event_time": utcnow().isoformat(),
-        "recorded_at": utcnow().isoformat(),
+        "event_time": now,
+        "recorded_at": now,
         "causation_id": causation_id,
         "correlation_id": correlation_id,
         "schema_version": 1,

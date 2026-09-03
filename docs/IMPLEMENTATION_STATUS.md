@@ -4,37 +4,37 @@
 
 ## MVP progress estimate
 
-**Overall: ~72% toward the defined MVP.** This is a weighted engineering estimate, not a feature-count percentage. The remaining work is concentrated in restore/reincarnation proof, provenance inspection, selective QUORUM and final end-to-end validation.
+**Overall: ~79% toward the defined MVP.** This is a weighted engineering estimate, not a feature-count percentage. The core cognitive substrate is now strong; remaining work is concentrated in end-to-end QUORUM integration, authenticated continuity hardening, richer provenance UI and final MVP validation.
 
 | Capability | MVP completion | Status | Notes |
 |---|---:|---|---|
 | Python package | 100% | ✅ | Python 3.11+ baseline |
 | FastAPI API | 90% | 🟢 | health, authenticated sessions, ingestion, ask |
-| Provider-neutral gateway | 70% | 🟡 | OpenAI-compatible path; richer provider routing remains |
+| Provider-neutral gateway | 82% | 🟢 | normalized reasoning/embedding boundary and explicit provider routing |
 | Persistent sessions/messages | 90% | 🟢 | durable user + assistant history |
-| Reasoning persistence | 85% | 🟢 | runs, contributions, provenance events |
+| Reasoning persistence | 90% | 🟢 | runs, contributions, provenance events |
 | Canonical cognitive schema | 95% | 🟢 | core workspace/history/knowledge/cognition/reasoning substrate |
 | Workspace authentication | 90% | 🟢 | JWT subject + explicit membership checks |
 | Workspace RLS | 90% | 🟢 | no blanket policies; API also enforces tenant boundaries |
 | Temporal state | 85% | 🟢 | valid-time + record-time ranges |
 | Document ingestion | 90% | 🟢 | deterministic chunking + candidate claims |
 | Hybrid retrieval | 85% | 🟢 | lexical + pgvector reciprocal-rank fusion |
-| Claims + evidence | 80% | 🟢 | first-class provenance; promotion remains gated |
-| Contradiction detection | 80% | 🟢 | competing claims exposed through API/UI |
-| Belief revision | 75% | 🟢 | authenticated review + temporal belief versions |
+| Claims + evidence | 85% | 🟢 | first-class provenance; promotion remains gated |
+| Contradiction detection | 85% | 🟢 | competing claims exposed through API/UI |
+| Belief revision | 85% | 🟢 | authenticated review + temporal belief versions |
 | Epistemic gaps | 70% | 🟡 | initial missing-evidence detection; richer gap resolution remains |
 | Conversation normalization | 75% | 🟡 | ChatGPT, Claude, Gemini and generic adapters |
 | Portable export | 80% | 🟢 | deterministic JSON + SHA-256 + workspace exporter |
-| Portable restore | 55% | 🟡 | dependency-aware restore, dry-run validation, auth remapping, derived chunk rebuild |
-| Reincarnation proof | 20% | 🔴 | fresh-database end-to-end test still required |
-| Inspection UI | 50% | 🟡 | evidence/contradiction inspection; provenance graph next |
-| QUORUM | 35% | 🔴 | contribution substrate exists; selective orchestration next |
-| Collective-gain evaluation | 10% | 🔴 | baseline/evaluation protocol still required |
-| CI / migration verification | 100% | 🟢 | latest Python and Supabase jobs passed |
+| Portable restore | 80% | 🟡 | dependency-aware restore, dry-run validation, auth remapping, derived chunk rebuild |
+| Reincarnation proof | 75% | 🟡 | fresh-database proof path implemented; latest CI verification still running/pending |
+| Inspection UI | 70% | 🟡 | evidence/contradiction + provenance inspection |
+| Selective QUORUM | 55% | 🟡 | deterministic warrant policy + parallel contributors + synthesis endpoint; `/v1/ask` integration next |
+| Collective-gain evaluation | 35% | 🟡 | basic evidence-coverage/disagreement signal implemented; benchmark protocol next |
+| CI / migration verification | 95% | 🟡 | Python pipeline currently green; latest Supabase pipeline still completing |
 
-## Verified CI baseline
+## Latest verification
 
-Workflow run `33710912476` completed successfully. The Python job passed dependency installation, Ruff and pytest. The Supabase job passed local startup and a complete `supabase db reset`. This is the current correctness baseline.
+The latest push triggers AURORA CI. The Python job has passed dependency installation, Ruff and pytest. The Supabase job has passed environment setup and is progressing through the local Supabase startup/reset and reincarnation path; it is not declared green until the complete job finishes successfully.
 
 ## Current cognitive path
 
@@ -43,6 +43,16 @@ A real request can now follow:
 **ASK → INVESTIGATE → REASON → EXPLAIN → REMEMBER**
 
 The path includes authenticated tenant enforcement, lexical/semantic retrieval, persistent reasoning contributions, first-class evidence IDs, candidate claim capture, contradiction detection, temporal reviewable beliefs and explicit epistemic gaps. Model assertions remain attributed contributions rather than automatic facts.
+
+## QUORUM implementation
+
+AURORA now has a first executable QUORUM slice:
+
+**QUESTION → WARRANT → parallel independent contributors → comparison → synthesis → provenance/telemetry**
+
+The warrant policy is intentionally conservative: explicit QUORUM/deep mode, workspace contradiction, or missing evidence can trigger deliberation. Contributors are capped at three per request and remain independently attributed. Failures are retained rather than hidden. The synthesis prompt explicitly prevents agreement from being treated as proof.
+
+The first collective-gain metric is deliberately modest: evidence coverage combined with disagreement/novelty. It is a diagnostic signal, not a claim of truth or model superiority.
 
 ## Continuity implementation
 
@@ -62,11 +72,11 @@ Embeddings remain derived state and are intentionally rebuilt after restoration.
 
 ## Next execution blocks
 
-1. Add a real fresh-database reincarnation integration test: ingest → ask → review → export → empty DB → map auth identity → import → rebuild chunks → reindex embeddings → ask again.
-2. Verify restored event/message/claim/evidence/belief/reasoning counts and provenance equivalence.
-3. Expand inspection UI into claim → evidence → event → reasoning-run provenance graphs.
-4. Add selective QUORUM orchestration only for disagreement, uncertainty or consequential questions.
-5. Define and measure collective gain against a single-model baseline.
+1. Finish and verify the current fresh-database reincarnation CI run.
+2. Integrate the QUORUM warrant policy directly into `/v1/ask`, so normal AURORA reasoning can escalate automatically without requiring a separate endpoint.
+3. Persist richer per-contributor telemetry and expose QUORUM provenance in the inspection UI.
+4. Define a reproducible collective-gain benchmark against a single-model baseline.
+5. Harden authenticated export/import and verify post-restore reindex → ask continuity.
 6. Complete the end-to-end MVP audit and freeze the MVP contract.
 
 ## Explicitly deferred

@@ -4,15 +4,15 @@
 
 ## MVP progress estimate
 
-**Overall: ~80% toward the defined MVP.** This is a weighted engineering estimate, not a feature-count percentage. The core cognitive substrate is strong; remaining work is concentrated in richer QUORUM persistence/provenance, authenticated continuity hardening, provenance UI and final end-to-end validation.
+**Overall: ~85% toward the defined MVP.** This is a weighted engineering estimate, not a feature-count percentage. The cognitive substrate, authenticated reasoning path, selective QUORUM persistence, and first provenance inspection surface are now functional. Remaining work is concentrated in rigorous QUORUM evaluation, authenticated continuity hardening, richer graph semantics, and final end-to-end validation.
 
 | Capability | MVP completion | Status | Notes |
 |---|---:|---|---|
 | Python package | 100% | ✅ | Python 3.11+ baseline |
-| FastAPI API | 90% | 🟢 | health, authenticated sessions, ingestion, ask |
-| Provider-neutral gateway | 88% | 🟢 | normalized reasoning/embedding boundary, explicit routing and selective QUORUM escalation |
+| FastAPI API | 92% | 🟢 | health, authenticated sessions, ingestion, ask, QUORUM persistence |
+| Provider-neutral gateway | 90% | 🟢 | normalized reasoning/embedding boundary, explicit routing and selective QUORUM escalation |
 | Persistent sessions/messages | 90% | 🟢 | durable user + assistant history |
-| Reasoning persistence | 90% | 🟢 | runs, contributions, provenance events |
+| Reasoning persistence | 95% | 🟢 | runs, independent contributions, synthesis, provenance events |
 | Canonical cognitive schema | 95% | 🟢 | core workspace/history/knowledge/cognition/reasoning substrate |
 | Workspace authentication | 90% | 🟢 | JWT subject + explicit membership checks |
 | Workspace RLS | 90% | 🟢 | no blanket policies; API also enforces tenant boundaries |
@@ -20,21 +20,21 @@
 | Document ingestion | 90% | 🟢 | deterministic chunking + candidate claims |
 | Hybrid retrieval | 85% | 🟢 | lexical + pgvector reciprocal-rank fusion |
 | Claims + evidence | 85% | 🟢 | first-class provenance; promotion remains gated |
-| Contradiction detection | 85% | 🟢 | competing claims exposed through API/UI |
+| Contradiction detection | 88% | 🟢 | competing claims exposed and can warrant QUORUM |
 | Belief revision | 85% | 🟢 | authenticated review + temporal belief versions |
-| Epistemic gaps | 75% | 🟡 | missing-evidence detection now drives selective escalation |
+| Epistemic gaps | 80% | 🟢 | missing evidence now drives explicit QUORUM escalation |
 | Conversation normalization | 75% | 🟡 | ChatGPT, Claude, Gemini and generic adapters |
 | Portable export | 80% | 🟢 | deterministic JSON + SHA-256 + workspace exporter |
 | Portable restore | 80% | 🟡 | dependency-aware restore, dry-run validation, auth remapping, derived chunk rebuild |
-| Reincarnation proof | 75% | 🟡 | fresh-database proof path implemented; current CI verification pending completion |
-| Inspection UI | 70% | 🟡 | evidence/contradiction + provenance inspection |
-| Selective QUORUM | 65% | 🟡 | warranting, parallel contributors, failure retention, comparison and synthesis integrated into gateway; richer API persistence next |
-| Collective-gain evaluation | 40% | 🟡 | evidence-coverage/disagreement diagnostic implemented; benchmark protocol next |
-| CI / migration verification | 95% | 🟡 | prior Python verification green; newest QUORUM test run is still in progress |
+| Reincarnation proof | 85% | 🟢 | fresh-database proof path passes CI |
+| Inspection UI | 82% | 🟢 | answer/evidence/contradiction/provenance + QUORUM deliberation inspection |
+| Selective QUORUM | 82% | 🟢 | warrants, parallel contributors, failure retention, comparison, synthesis, first-class persistence and UI telemetry |
+| Collective-gain evaluation | 45% | 🟡 | diagnostic signal exists; reproducible benchmark still required |
+| CI / migration verification | 98% | 🟢 | latest Supabase/reincarnation and Python/Ruff/pytest run passed |
 
 ## Latest verification
 
-The newest push (`8e1c4c08df9a747b22f15e8cb0aea42f6c6abddb`) triggers AURORA CI. The run is currently in progress. Earlier Python checks have passed dependency installation, Ruff and pytest; the complete newest run is not declared green until both Python and Supabase jobs finish successfully.
+AURORA CI run **33720441188 / #99**, commit `5040c38c9f46474337ca406eb032cf96332025a2`, completed successfully. Both the Supabase job and Python job passed; the Supabase job included `supabase db reset` and the full `scripts/test-reincarnation.py` proof, while the Python job passed Ruff and pytest.
 
 ## Current cognitive path
 
@@ -42,19 +42,33 @@ A real request can follow:
 
 **ASK → INVESTIGATE → WARRANT → REASON / QUORUM → EXPLAIN → REMEMBER**
 
-Normal `balanced` reasoning now escalates to QUORUM when no evidence is available. Explicit `deep` and `quorum` modes also deliberate. Evidence-bearing balanced requests remain single-model by default, preserving the cost/latency guardrail.
+Normal `balanced` reasoning remains single-model when useful evidence is available. Missing evidence or a relevant workspace contradiction can supply an explicit warrant for QUORUM. Explicit `deep` and `quorum` modes also deliberate.
 
 ## QUORUM implementation
 
-AURORA now has an executable gateway-level QUORUM slice:
+The executable path is now:
 
-**QUESTION → WARRANT → parallel independent contributors → comparison → synthesis → telemetry**
+**QUESTION → WARRANT → parallel independent contributors → comparison → synthesis → persisted contributions → provenance event → UI inspection**
 
-The warrant policy is intentionally conservative. Contributors are capped at three per deliberation, failures are retained, and synthesis is performed through the same provider-neutral gateway. Independent responses remain attributed and the synthesis prompt explicitly prevents agreement from being treated as proof.
+Each successful contributor is represented separately from the synthesizer. Contributor model/provider, response, evidence IDs and latency are retained. Failed contributors remain explicit telemetry rather than disappearing from the deliberation record. The reasoning run metadata preserves the warrant, comparison metrics and full deliberation metadata.
 
-The first collective-gain signal combines evidence coverage with disagreement/novelty. It is a diagnostic measurement, not a claim of truth or model superiority.
+The current collective-gain signal combines evidence coverage with lexical disagreement/novelty. It is deliberately a diagnostic measurement, not a claim of truth or model superiority. A benchmark against single-model reasoning remains outstanding.
 
-A current limitation is deliberate: `/v1/ask` receives the QUORUM result through the gateway, but the API persistence layer still records the synthesized result as its primary model contribution. The next QUORUM step is to persist each independent contribution and deliberation as first-class reasoning/provenance records rather than relying on gateway metadata.
+## Provenance inspection
+
+The workspace UI now exposes a dedicated QUORUM panel after every `/v1/ask` response. It shows:
+
+- warrant for escalation;
+- independent contributor count and responses;
+- contributor provider/model and latency;
+- evidence IDs used by each contributor;
+- failed contributors;
+- measured agreement;
+- evidence coverage;
+- collective-gain signal;
+- synthesis model/provider/latency.
+
+Claim-level provenance continues to expose claim → evidence → source/event → reasoning run → model contribution relationships.
 
 ## Continuity implementation
 
@@ -64,12 +78,11 @@ Embeddings remain derived state and are intentionally rebuilt after restoration.
 
 ## Next execution blocks
 
-1. Finish and verify the current CI/reincarnation run.
-2. Persist QUORUM deliberations and individual contributors as first-class reasoning/provenance records from `/v1/ask`.
-3. Expose the QUORUM graph in the inspection UI: question → contributor → evidence → disagreement → synthesis.
-4. Define a reproducible collective-gain benchmark against a single-model baseline.
-5. Harden authenticated export/import and verify post-restore reindex → ask continuity.
-6. Complete the end-to-end MVP audit and freeze the MVP contract.
+1. Define and implement a reproducible collective-gain benchmark against a single-model baseline.
+2. Extend provenance graph semantics to show QUORUM contributor → synthesis → reasoning event relationships directly.
+3. Harden authenticated export/import and verify post-restore reindex → ask continuity end-to-end.
+4. Add API-level integration tests for contradiction-warranted QUORUM and persisted contributor rows.
+5. Complete the end-to-end MVP audit and freeze the MVP contract.
 
 ## Explicitly deferred
 

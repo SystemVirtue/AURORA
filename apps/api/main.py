@@ -17,7 +17,7 @@ from aurora.cognition import create_source_and_document, merge_retrieval_results
 from aurora.core import event_envelope, settings
 from aurora.gateway import ReasoningError, ReasoningGateway
 
-app = FastAPI(title="AURORA", version="0.4.1")
+app = FastAPI(title="AURORA", version="0.5.0")
 bearer = HTTPBearer(auto_error=False)
 
 
@@ -62,15 +62,13 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
 
 
 def require_workspace_access(conn, workspace_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    row = conn.execute("select 1 from public.workspace_members where workspace_id=%s and user_id=%s", (workspace_id, user_id)).fetchone()
-    if not row:
+    if not conn.execute("select 1 from public.workspace_members where workspace_id=%s and user_id=%s", (workspace_id, user_id)).fetchone():
         raise HTTPException(403, "User is not a member of this workspace")
 
 
 def require_session_access(conn, session_id: uuid.UUID, workspace_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    row = conn.execute("""select 1 from public.sessions s join public.workspace_members wm on wm.workspace_id=s.workspace_id
-        where s.id=%s and s.workspace_id=%s and wm.user_id=%s""", (session_id, workspace_id, user_id)).fetchone()
-    if not row:
+    if not conn.execute("""select 1 from public.sessions s join public.workspace_members wm on wm.workspace_id=s.workspace_id
+        where s.id=%s and s.workspace_id=%s and wm.user_id=%s""", (session_id, workspace_id, user_id)).fetchone():
         raise HTTPException(404, "Session not found")
 
 
@@ -91,6 +89,19 @@ def health_db() -> dict[str, str]:
     with psycopg.connect(settings.database_url) as conn:
         conn.execute("select 1")
     return {"status": "ok", "database": "reachable"}
+
+
+@app.get("/v1/claims/contradictions")
+def claim_contradictions(workspace_id: uuid.UUID, user_id: uuid.UUID = Depends(current_user)) -> dict:
+    if not settings.database_url:
+        raise HTTPException(503, "DATABASE_URL is not configured")
+    with psycopg.connect(settings.database_url) as conn:
+        require_workspace_access(conn, workspace_id, user_id)
+        rows = conn.execute("select claim_id, opposing_claim_id, subject, predicate, object, opposing_object from public.claim_contradictions(%s)", (workspace_id,)).fetchall()
+    return {"workspace_id": str(workspace_id), "count": len(rows), "contradictions": [
+        {"claim_id": str(r[0]), "opposing_claim_id": str(r[1]), "subject": r[2], "predicate": r[3], "object": r[4], "opposing_object": r[5]}
+        for r in rows
+    ]}
 
 
 @app.post("/v1/sessions")
@@ -117,7 +128,8 @@ def ingest_document(request: DocumentRequest, user_id: uuid.UUID = Depends(curre
             values (%(id)s,%(workspace_id)s,%(event_type)s,%(producer_type)s,%(producer_id)s,%(event_time)s,%(recorded_at)s,%(correlation_id)s,%(schema_version)s,%(payload)s::jsonb)""", {**event, "payload": json.dumps(event["payload"])})
         event_id = uuid.UUID(event["id"])
         claim_ids = persist_candidate_claims(conn, workspace_id=request.workspace_id, source_id=source_id, event_id=event_id, text=request.content)
-        for claim, claim_id in zip(extract_candidate_claims(request.content), claim_ids):
+        candidates = extract_candidate_claims(request.content)
+        for claim, claim_id in zip(candidates, claim_ids):
             conn.execute("""insert into public.evidence (workspace_id,claim_id,source_id,event_id,relation,strength,extraction_method,excerpt)
                 values (%s,%s,%s,%s,'supports',%s,'deterministic_candidate',%s)""", (request.workspace_id, claim_id, source_id, event_id, claim.confidence, claim.excerpt))
         conn.commit()
@@ -178,6 +190,13 @@ async def ask(request: AskRequest, user_id: uuid.UUID = Depends(current_user)) -
             except ReasoningError:
                 semantic = []
         evidence = merge_retrieval_results(lexical, semantic)
+        evidence_ids: list[uuid.UUID] = []
+        for item in evidence:
+            ids = conn.execute("""select e.id from public.evidence e join public.documents d on d.source_id=e.source_id
+                join public.document_chunks dc on dc.document_id=d.id where dc.id=%s and e.workspace_id=%s order by e.created_at""", (item["chunk_id"], request.workspace_id)).fetchall()
+            item["evidence_ids"] = [r[0] for r in ids]
+            evidence_ids.extend(item["evidence_ids"])
+        evidence_ids = list(dict.fromkeys(evidence_ids))
         context = "\n\n".join(f"[Evidence {i + 1}] {item['document']} (chunk {item['chunk_index']}, score {item['score']:.3f})\n{item['content']}" for i, item in enumerate(evidence))
         conn.commit()
     try:
@@ -188,9 +207,9 @@ async def ask(request: AskRequest, user_id: uuid.UUID = Depends(current_user)) -
     with psycopg.connect(settings.database_url) as conn:
         require_workspace_access(conn, request.workspace_id, user_id)
         conn.execute("""insert into public.reasoning_runs (id,workspace_id,session_id,question,mode,status,answer,started_at,completed_at,metadata)
-            values (%s,%s,%s,%s,%s,'completed',%s,now(),now(),%s::jsonb)""", (run_id, request.workspace_id, session_id, request.question, request.mode, result["response"], json.dumps({"evidence_count": len(evidence), "lexical_count": len(lexical), "semantic_count": len(semantic)})))
+            values (%s,%s,%s,%s,%s,'completed',%s,now(),now(),%s::jsonb)""", (run_id, request.workspace_id, session_id, request.question, request.mode, result["response"], json.dumps({"evidence_count": len(evidence), "lexical_count": len(lexical), "semantic_count": len(semantic), "evidence_ids": [str(x) for x in evidence_ids]})))
         conn.execute("""insert into public.model_contributions (reasoning_run_id,model_id,provider,response,latency_ms,evidence_ids)
-            values (%s,%s,%s,%s,%s,%s)""", (run_id, result["model"], result["provider"], result["response"], result["latency_ms"], [item["chunk_id"] for item in evidence]))
+            values (%s,%s,%s,%s,%s,%s)""", (run_id, result["model"], result["provider"], result["response"], result["latency_ms"], evidence_ids))
         _, assistant_event_id = record_message(conn, workspace_id=request.workspace_id, session_id=session_id, role="assistant", content=result["response"], source_id=None, correlation_id=correlation_id, causation_id=user_event_id)
         conn.execute("update public.events set aggregate_type='reasoning_run', aggregate_id=%s where id=%s", (run_id, assistant_event_id))
         if not evidence:
@@ -200,7 +219,7 @@ async def ask(request: AskRequest, user_id: uuid.UUID = Depends(current_user)) -
             conn.execute("""insert into public.events (id,workspace_id,session_id,event_type,producer_type,event_time,recorded_at,correlation_id,schema_version,payload)
                 values (%(id)s,%(workspace_id)s,%(session_id)s,%(event_type)s,%(producer_type)s,%(event_time)s,%(recorded_at)s,%(correlation_id)s,%(schema_version)s,%(payload)s::jsonb)""", {**gap, "payload": json.dumps(gap["payload"])})
         conn.commit()
-    return {"answer": result["response"], "session_id": str(session_id), "reasoning_run_id": str(run_id), "model": result["model"], "provider": result["provider"], "latency_ms": result["latency_ms"], "evidence": evidence, "trace": {"correlation_id": str(correlation_id), "user_event": str(user_event_id), "assistant_event": str(assistant_event_id), "retrieval_count": len(evidence), "retrieval_mode": "hybrid" if semantic else "lexical"}}
+    return {"answer": result["response"], "session_id": str(session_id), "reasoning_run_id": str(run_id), "model": result["model"], "provider": result["provider"], "latency_ms": result["latency_ms"], "evidence": evidence, "trace": {"correlation_id": str(correlation_id), "user_event": str(user_event_id), "assistant_event": str(assistant_event_id), "retrieval_count": len(evidence), "retrieval_mode": "hybrid" if semantic else "lexical", "evidence_ids": [str(x) for x in evidence_ids]}}
 
 
 if __name__ == "__main__":

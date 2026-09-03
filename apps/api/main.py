@@ -8,11 +8,17 @@ import psycopg
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from aurora.cognition import create_source_and_document, record_message, retrieve_lexical
+from aurora.cognition import (
+    create_source_and_document,
+    merge_retrieval_results,
+    record_message,
+    retrieve_lexical,
+    retrieve_semantic,
+)
 from aurora.core import event_envelope, settings
 from aurora.gateway import ReasoningError, ReasoningGateway
 
-app = FastAPI(title="AURORA", version="0.2.0")
+app = FastAPI(title="AURORA", version="0.3.0")
 
 
 class AskRequest(BaseModel):
@@ -89,7 +95,9 @@ def ingest_document(request: DocumentRequest) -> dict:
             {**event, "payload": json.dumps(event["payload"])},
         )
         conn.commit()
-        count = conn.execute("select count(*) from public.document_chunks where document_id=%s", (document_id,)).fetchone()[0]
+        count = conn.execute(
+            "select count(*) from public.document_chunks where document_id=%s", (document_id,)
+        ).fetchone()[0]
     return {"document_id": str(document_id), "source_id": str(source_id), "chunks": count}
 
 
@@ -100,6 +108,7 @@ async def ask(request: AskRequest) -> dict:
 
     session_id = request.session_id or uuid.uuid4()
     correlation_id = uuid.uuid4()
+    gateway = ReasoningGateway()
     with psycopg.connect(settings.database_url) as conn:
         if not request.session_id:
             conn.execute(
@@ -115,14 +124,28 @@ async def ask(request: AskRequest) -> dict:
             source_id=None,
             correlation_id=correlation_id,
         )
-        evidence = retrieve_lexical(conn, workspace_id=request.workspace_id, question=request.question)
+        lexical = retrieve_lexical(conn, workspace_id=request.workspace_id, question=request.question)
+
+        semantic: list[dict] = []
+        if settings.openai_api_key or settings.openrouter_api_key:
+            try:
+                embedding_result = await gateway.embed([request.question])
+                embedding = embedding_result["embeddings"][0]
+                if len(embedding) == 1536:
+                    semantic = retrieve_semantic(
+                        conn, workspace_id=request.workspace_id, embedding=embedding
+                    )
+            except ReasoningError:
+                # Semantic retrieval is an enhancement; lexical retrieval remains the safe fallback.
+                semantic = []
+        evidence = merge_retrieval_results(lexical, semantic)
         context = "\n\n".join(
-            f"[Evidence {i + 1}] {item['document']} (chunk {item['chunk_index']}, score {item['score']:.3f})\n{item['content']}"
+            f"[Evidence {i + 1}] {item['document']} (chunk {item['chunk_index']}, "
+            f"score {item['score']:.3f})\n{item['content']}"
             for i, item in enumerate(evidence)
         )
         conn.commit()
 
-    gateway = ReasoningGateway()
     try:
         result = await gateway.complete(question=request.question, context=context, model=request.model)
     except ReasoningError as exc:
@@ -134,13 +157,34 @@ async def ask(request: AskRequest) -> dict:
             """insert into public.reasoning_runs
                (id,workspace_id,session_id,question,mode,status,answer,started_at,completed_at,metadata)
                values (%s,%s,%s,%s,%s,'completed',%s,now(),now(),%s::jsonb)""",
-            (run_id, request.workspace_id, session_id, request.question, request.mode, result["response"], json.dumps({"evidence_count": len(evidence)})),
+            (
+                run_id,
+                request.workspace_id,
+                session_id,
+                request.question,
+                request.mode,
+                result["response"],
+                json.dumps(
+                    {
+                        "evidence_count": len(evidence),
+                        "lexical_count": len(lexical),
+                        "semantic_count": len(semantic),
+                    }
+                ),
+            ),
         )
         conn.execute(
             """insert into public.model_contributions
                (reasoning_run_id,model_id,provider,response,latency_ms,evidence_ids)
                values (%s,%s,%s,%s,%s,%s)""",
-            (run_id, result["model"], result["provider"], result["response"], result["latency_ms"], [item["chunk_id"] for item in evidence]),
+            (
+                run_id,
+                result["model"],
+                result["provider"],
+                result["response"],
+                result["latency_ms"],
+                [item["chunk_id"] for item in evidence],
+            ),
         )
         _, assistant_event_id = record_message(
             conn,
@@ -166,14 +210,18 @@ async def ask(request: AskRequest) -> dict:
                 payload={"reasoning_run_id": str(run_id), "gap_type": "missing_evidence"},
             )
             conn.execute(
-                """insert into public.epistemic_gaps (workspace_id,reasoning_run_id,description,gap_type,severity,resolution_hint)
-                   values (%s,%s,%s,'missing_evidence',1.0,'Ingest or retrieve supporting source material before treating the answer as supported.')""",
+                """insert into public.epistemic_gaps
+                   (workspace_id,reasoning_run_id,description,gap_type,severity,resolution_hint)
+                   values (%s,%s,%s,'missing_evidence',1.0,
+                           'Ingest or retrieve supporting source material before treating the answer as supported.')""",
                 (request.workspace_id, run_id, "No indexed evidence matched the question."),
             )
             conn.execute(
                 """insert into public.events
-                   (id,workspace_id,session_id,event_type,producer_type,event_time,recorded_at,correlation_id,schema_version,payload)
-                   values (%(id)s,%(workspace_id)s,%(session_id)s,%(event_type)s,%(producer_type)s,%(event_time)s,%(recorded_at)s,%(correlation_id)s,%(schema_version)s,%(payload)s::jsonb)""",
+                   (id,workspace_id,session_id,event_type,producer_type,event_time,recorded_at,
+                    correlation_id,schema_version,payload)
+                   values (%(id)s,%(workspace_id)s,%(session_id)s,%(event_type)s,%(producer_type)s,
+                           %(event_time)s,%(recorded_at)s,%(correlation_id)s,%(schema_version)s,%(payload)s::jsonb)""",
                 {**gap, "payload": json.dumps(gap["payload"])},
             )
         conn.commit()
@@ -191,10 +239,17 @@ async def ask(request: AskRequest) -> dict:
             "user_event": str(user_event_id),
             "assistant_event": str(assistant_event_id),
             "retrieval_count": len(evidence),
+            "retrieval_mode": "hybrid" if semantic else "lexical",
         },
     }
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("apps.api.main:app", host=os.getenv("AURORA_HOST", "127.0.0.1"), port=int(os.getenv("AURORA_PORT", "8000")), reload=True)
+
+    uvicorn.run(
+        "apps.api.main:app",
+        host=os.getenv("AURORA_HOST", "127.0.0.1"),
+        port=int(os.getenv("AURORA_PORT", "8000")),
+        reload=True,
+    )

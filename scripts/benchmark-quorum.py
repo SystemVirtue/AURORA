@@ -1,8 +1,8 @@
 """Run the deterministic QUORUM benchmark without provider/API calls."""
 
-from aurora.evaluation import run_benchmark
-
 import json
+
+from aurora.evaluation import run_benchmark  # noqa: I001
 
 
 if __name__ == "__main__":

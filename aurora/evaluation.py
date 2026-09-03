@@ -91,6 +91,7 @@ def default_cases() -> tuple[BenchmarkCase, ...]:
             (Contribution("a", "There is not enough evidence to identify an approver.", evidence_ids=()),
              Contribution("b", "The available material does not identify an approver.", evidence_ids=())),
             "There is insufficient evidence to identify who approved the change.",
+            True,
         ),
         BenchmarkCase(
             "unsupported_claim_rejected", "Was the migration risk-free?", ("e4",),
@@ -99,6 +100,7 @@ def default_cases() -> tuple[BenchmarkCase, ...]:
             (Contribution("a", "The migration completed successfully; the evidence does not establish zero risk.", evidence_ids=("e4",)),
              Contribution("b", "The migration completed, but risk-free is unsupported.", evidence_ids=("e4",))),
             "The migration completed successfully, but the supplied evidence does not establish that it was risk-free.",
+            True,
         ),
         BenchmarkCase(
             "conclusion_changes", "Is the old configuration still active?", ("e5", "e6"),

@@ -108,6 +108,8 @@ The repository currently contains the first executable substrate:
 - portable state bundle utility;
 - Supabase/Postgres schema with workspace RLS;
 - temporal claims, beliefs and relationships;
+- generic conversation normalization;
+- lightweight QUORUM contribution comparison;
 - deterministic local tests;
 - local Supabase deployment scripts;
 - remote migration deployment script;
@@ -119,10 +121,12 @@ This is intentionally a **real thin slice**, not a claim that every architectura
 
 ```text
 AURORA/
-├── aurora/                         # Core Python primitives and gateway
+├── aurora/                         # Core Python primitives
 │   ├── core.py
 │   ├── gateway.py
-│   └── continuity.py
+│   ├── continuity.py
+│   ├── importers.py
+│   └── quorum.py
 ├── apps/
 │   └── api/main.py                 # First API surface
 ├── supabase/
@@ -130,8 +134,6 @@ AURORA/
 │   ├── migrations/
 │   └── seed.sql
 ├── tests/
-│   ├── test_core.py
-│   └── test_continuity.py
 ├── scripts/
 │   ├── dev-up.sh
 │   └── deploy-remote.sh
@@ -152,7 +154,7 @@ Requirements:
 - Docker Desktop or another Docker-compatible runtime;
 - a model-provider API key for actual reasoning.
 
-Supabase's current CLI documentation recommends project-local CLI installation, `supabase init`, `supabase start`, migration-based development and `supabase db reset` for reproducible local testing. The repository pins the CLI package to **2.116.0**. citeturn0search0turn0search1turn0search2
+The repository pins the Supabase CLI to **2.116.0**. Supabase's documented local workflow is `supabase start` followed by migration/seed verification with `supabase db reset`.
 
 ### 1. Clone and install
 
@@ -166,14 +168,14 @@ pip install -e '.[dev]'
 cp .env.example .env
 ```
 
-### 2. Start the local Supabase stack
+### 2. Start local Supabase
 
 ```bash
 npx supabase start
 npx supabase db reset
 ```
 
-The local stack is for development/testing and must not be exposed publicly. citeturn0search0turn0search2
+Keep the local stack bound to your machine; it is a development environment, not a production service.
 
 ### 3. Configure a model
 
@@ -202,7 +204,7 @@ uvicorn apps.api.main:app --reload --host 127.0.0.1 --port 8000
 Health endpoint:
 
 ```text
-GET http://127.0.0.1:8000/health
+GET /health
 ```
 
 Reasoning endpoint:
@@ -227,27 +229,18 @@ Example payload:
 bash scripts/dev-up.sh
 ```
 
-This starts Supabase, resets the local database, configures the standard local database URL when one is not already supplied, and starts the API.
+This starts Supabase, resets the local database, sets the standard local database URL when needed, and starts the API.
 
 ## Remote Supabase deployment
 
 The repository intentionally does **not** hard-code a production project reference.
 
-Authenticate once:
-
 ```bash
 npx supabase login
-```
-
-Then deploy a chosen development/staging project:
-
-```bash
 bash scripts/deploy-remote.sh <SUPABASE_PROJECT_REF>
 ```
 
-The script links the project, performs a migration dry run and then applies pending migrations. Supabase documents `db push --dry-run` followed by `db push` as the normal migration deployment workflow. citeturn0search2turn0search4
-
-Do not use destructive remote reset commands against production.
+The script links the selected project, previews pending migrations, then applies them. Use a dedicated development/staging project for initial testing.
 
 ## Database design
 
@@ -282,37 +275,16 @@ RAW IMPORT
  → PROMOTION / REJECTION
 ```
 
-This means a historical statement such as:
-
-> Model X previously asserted Y.
-
-remains an attributed assertion rather than becoming:
-
-> Y is true.
+A historical model statement remains an attributed assertion rather than automatically becoming truth.
 
 ## Machine reincarnation
 
 Essential cognitive state must survive infrastructure.
 
-AURORA exports authoritative state separately from derived state. A future export package will contain events, conversations, claims, evidence, entities, relationships, memories, goals, decisions, reasoning runs, contributions, epistemic gaps, documents and checksums.
-
-The target recovery test is:
+AURORA exports authoritative state separately from derived state. The target recovery test is:
 
 ```text
-Machine A
-   │
-   ├── export cognitive state
-   ▼
-portable state package
-   │
-   ▼
-Machine B
-   │
-   ├── fresh AURORA install
-   ├── import state
-   ├── verify checksums
-   ├── rebuild derived indexes
-   └── resume cognition
+Machine A → export → portable state → fresh Machine B → import → verify → resume
 ```
 
 The decisive question is:
@@ -323,23 +295,7 @@ The decisive question is:
 
 QUORUM is a subsystem, not a competing product identity.
 
-It should be invoked when independent reasoning materially improves the result:
-
-```text
-QUESTION
- ├─ Model A → hypothesis
- ├─ Model B → hypothesis
- ├─ Model C → hypothesis
- └─ Model D → hypothesis
-             ↓
-        EVALUATION
-             ↓
-   AGREEMENT / DISAGREEMENT
-             ↓
-         SYNTHESIS
-```
-
-Every contribution remains attributable. Disagreement is preserved. Cost, latency and measurable improvement should be recorded.
+It should be invoked when independent reasoning materially improves the result. Contributions remain attributable, disagreement is preserved, and future evaluation will measure whether QUORUM actually improves decision quality enough to justify its cost and latency.
 
 ## Developmental continuity
 
@@ -352,68 +308,38 @@ Current implementation instructions live in:
 - `docs/prompts/AURORA_AGENT_MASTER_PROMPT.md`
 - `docs/prompts/DEVELOPER_AGENT_MASTER_PROMPT_LEGACY.md`
 
-The legacy prompt is preserved because it captures important predecessor thinking, but it is not the current implementation contract. The predecessor prompt explicitly centred DCA on NATS, microservices and a separate edge daemon; AURORA deliberately starts with a smaller cognitive substrate and introduces those components only when justified. fileciteturn22file0L2-L10
+The legacy prompt preserves the predecessor's DCA-era assumptions. It is historical reference, not the current contract.
 
 ## Architecture documents
 
 - `docs/architecture/AURORA_MVP_ARCHITECTURE.md` — foundational architecture contract
 - `docs/architecture/ARCHITECTURE_PRINCIPLES.md` — implementation invariants
+- `docs/IMPLEMENTATION_STATUS.md` — executable scope and remaining MVP work
 - `docs/PITCH_60_SECOND.md` — executive narrative
-- `archive/predecessor/README.md` — lineage and recovered lessons
+- `archive/predecessor/README.md` — lineage
 
 ## Roadmap
 
 ### Phase 0 — substrate correctness
-
-- schema validation;
-- secure tenancy;
-- temporal correctness;
-- event invariants;
-- repository hygiene.
+Schema, tenancy, temporal semantics, event invariants and repository hygiene.
 
 ### Phase 1 — real cognitive loop
-
-- persistent conversations;
-- ingestion;
-- claims/evidence extraction;
-- retrieval;
-- reasoning gateway;
-- transparent answer traces.
+Persistent conversations, document ingestion, claims/evidence extraction, retrieval, reasoning and transparent traces.
 
 ### Phase 2 — continuity
-
-- ChatGPT/Claude/Gemini/Grok/generic conversation import;
-- provenance reconstruction;
-- candidate memory promotion;
-- historical cognition.
+Major LLM conversation importers, provenance reconstruction and memory promotion.
 
 ### Phase 3 — epistemic cognition
-
-- facts vs beliefs;
-- contradiction detection;
-- confidence calibration;
-- epistemic gaps;
-- temporal belief revision.
+Facts vs beliefs, contradiction detection, confidence calibration, epistemic gaps and belief revision.
 
 ### Phase 4 — QUORUM
-
-- independent contributions;
-- cross-evaluation;
-- disagreement representation;
-- synthesis;
-- contribution/cost ledger.
+Independent contributions, cross-evaluation, disagreement representation, synthesis and contribution/cost ledger.
 
 ### Phase 5 — reincarnation
-
-- full export/import;
-- schema versioning;
-- checksums;
-- rebuildable derived state;
-- fresh-deployment resurrection test.
+Complete export/import, schema versioning, checksums, rebuildable derived state and fresh-deployment resurrection.
 
 ### Later
-
-UNBOX, richer control-plane visualisation, distributed event transport, autonomous agents and controlled self-improvement remain possible extensions — not MVP blockers.
+UNBOX, richer control-plane visualisation, distributed event transport, autonomous agents and controlled self-improvement.
 
 ## Definition of done
 
@@ -426,8 +352,6 @@ while preserving evidence, provenance, uncertainty and cognitive history, and wh
 ## Lineage
 
 AURORA is the clean implementation successor to `SystemVirtue/Supabase_Agentic_Assistant`. The predecessor is retained as an architectural R&D/archaeological layer rather than copied wholesale.
-
-The predecessor's pitch described AURORA as a persistent, event-sourced and inspectable cognitive substrate and emphasised facts/beliefs, epistemic gaps, disagreement, QUORUM and provenance. That narrative remains aligned with the present project, but the implementation is intentionally more disciplined and incremental. fileciteturn24file0L2-L10
 
 ## Status
 

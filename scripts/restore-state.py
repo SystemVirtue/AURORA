@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Restore an AURORA workspace bundle into a fresh PostgreSQL/Supabase database."""
 from __future__ import annotations
 

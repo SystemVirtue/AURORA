@@ -10,7 +10,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from aurora.cognition import merge_retrieval_results, record_message, retrieve_lexical, retrieve_semantic
+from aurora.cognition import (
+    merge_retrieval_results,
+    record_message,
+    retrieve_lexical,
+    retrieve_semantic,
+)
 from aurora.core import event_envelope, settings
 from aurora.gateway import ReasoningError, ReasoningGateway
 from aurora.quorum import Contribution, compare_contributions, should_deliberate, synthesis_prompt
@@ -139,10 +144,7 @@ async def quorum(
             except ReasoningError:
                 semantic = []
         retrieved = merge_retrieval_results(lexical, semantic, limit=8)
-        context = [
-            {"content": item["content"], "evidence_id": item["evidence_id"]}
-            for item in retrieved
-        ]
+        context = [{"content": item["content"], "evidence_id": item["evidence_id"]} for item in retrieved]
         contradiction_count = conn.execute(
             "select count(*) from public.claim_contradictions(%s)", (request.workspace_id,)
         ).fetchone()[0]
@@ -161,10 +163,12 @@ async def quorum(
         evidence_ids = tuple(str(item["evidence_id"]) for item in retrieved if item.get("evidence_id"))
         contributions = []
         failures = []
+        successful_results = []
         for model, result in zip(models, results):
             if isinstance(result, Exception):
                 failures.append({"model": model, "error": str(result)})
                 continue
+            successful_results.append(result)
             contributions.append(
                 Contribution(
                     model_id=result["model"],
@@ -179,21 +183,15 @@ async def quorum(
         deliberation = compare_contributions(request.question, contributions)
         synthesis = await gateway.reason(
             question=request.question,
-            context=[{
-                "content": synthesis_prompt(request.question, deliberation),
-                "evidence_id": "quorum-deliberation",
-            }],
+            context=[{"content": synthesis_prompt(request.question, deliberation), "evidence_id": "quorum-deliberation"}],
             model=settings.default_model,
             mode="quorum",
         )
         reasoning_run_id = uuid.uuid4()
         metadata = {
-            "correlation_id": str(correlation_id),
-            "quorum": True,
-            "warrant_reason": warrant_reason,
-            "requested_models": models,
-            "failed_models": failures,
-            "agreement": deliberation.agreement,
+            "correlation_id": str(correlation_id), "quorum": True,
+            "warrant_reason": warrant_reason, "requested_models": models,
+            "failed_models": failures, "agreement": deliberation.agreement,
             "evidence_coverage": deliberation.evidence_coverage,
             "collective_gain": deliberation.collective_gain,
             "disagreements": deliberation.disagreements,
@@ -202,31 +200,24 @@ async def quorum(
             """insert into public.reasoning_runs
             (id,workspace_id,session_id,question,mode,status,answer,confidence,started_at,completed_at,metadata)
             values (%s,%s,%s,%s,'quorum','completed',%s,%s,%s,%s,%s::jsonb)""",
-            (
-                reasoning_run_id, request.workspace_id, session_id, request.question,
-                synthesis["answer"], synthesis.get("confidence"), synthesis["started_at"],
-                synthesis["completed_at"], json.dumps(metadata),
-            ),
+            (reasoning_run_id, request.workspace_id, session_id, request.question,
+             synthesis["answer"], synthesis.get("confidence"), synthesis["started_at"],
+             synthesis["completed_at"], json.dumps(metadata)),
         )
-        for contribution, result in zip(contributions, [r for r in results if not isinstance(r, Exception)]):
+        for contribution, result in zip(contributions, successful_results):
             conn.execute(
                 """insert into public.model_contributions
                 (reasoning_run_id,model_id,provider,role,response,confidence,latency_ms,estimated_cost,evidence_ids)
                 values (%s,%s,%s,'quorum_contributor',%s,%s,%s,%s,%s)""",
-                (
-                    reasoning_run_id, contribution.model_id, contribution.provider, contribution.response,
-                    contribution.confidence, result.get("latency_ms"), result.get("estimated_cost"), list(evidence_ids),
-                ),
+                (reasoning_run_id, contribution.model_id, contribution.provider, contribution.response,
+                 contribution.confidence, result.get("latency_ms"), result.get("estimated_cost"), list(evidence_ids)),
             )
         conn.execute(
             """insert into public.model_contributions
             (reasoning_run_id,model_id,provider,role,response,confidence,latency_ms,estimated_cost,evidence_ids)
             values (%s,%s,%s,'quorum_synthesis',%s,%s,%s,%s,%s)""",
-            (
-                reasoning_run_id, synthesis["model"], synthesis.get("provider"), synthesis["answer"],
-                synthesis.get("confidence"), synthesis.get("latency_ms"), synthesis.get("estimated_cost"),
-                list(evidence_ids),
-            ),
+            (reasoning_run_id, synthesis["model"], synthesis.get("provider"), synthesis["answer"],
+             synthesis.get("confidence"), synthesis.get("latency_ms"), synthesis.get("estimated_cost"), list(evidence_ids)),
         )
         _, assistant_event_id = record_message(
             conn, workspace_id=request.workspace_id, session_id=session_id, role="assistant",
@@ -248,15 +239,12 @@ async def quorum(
         )
         conn.commit()
     return {
-        "session_id": str(session_id),
-        "reasoning_run_id": str(reasoning_run_id),
-        "answer": synthesis["answer"],
-        "evidence": retrieved,
+        "session_id": str(session_id), "reasoning_run_id": str(reasoning_run_id),
+        "answer": synthesis["answer"], "evidence": retrieved,
         "evidence_ids": list(evidence_ids),
         "contributions": [
             {"model": c.model_id, "provider": c.provider, "response": c.response,
-             "confidence": c.confidence, "evidence_ids": list(c.evidence_ids)}
-            for c in contributions
+             "confidence": c.confidence, "evidence_ids": list(c.evidence_ids)} for c in contributions
         ],
         "failures": failures,
         "deliberation": {
@@ -265,9 +253,5 @@ async def quorum(
             "evidence_coverage": deliberation.evidence_coverage,
             "collective_gain": deliberation.collective_gain,
         },
-        "trace": {
-            "correlation_id": str(correlation_id),
-            "user_event_id": str(user_event_id),
-            "assistant_event_id": str(assistant_event_id),
-        },
+        "trace": {"correlation_id": str(correlation_id), "user_event_id": str(user_event_id), "assistant_event_id": str(assistant_event_id)},
     }

@@ -11,6 +11,7 @@ from aurora.core import settings
 
 router = APIRouter(prefix="/v1/claims", tags=["claims"])
 bearer = HTTPBearer(auto_error=False)
+bearer_dependency = Depends(bearer)
 
 
 class ClaimReviewRequest(BaseModel):
@@ -24,7 +25,7 @@ class ClaimReviewRequest(BaseModel):
 def review_claim(
     claim_id: uuid.UUID,
     request: ClaimReviewRequest,
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    credentials: HTTPAuthorizationCredentials | None = bearer_dependency,
 ) -> dict:
     """Thin adapter; the database function owns revision and temporal semantics."""
     from apps.api.main import current_user

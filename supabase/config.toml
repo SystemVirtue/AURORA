@@ -1,0 +1,20 @@
+project_id = "aurora"
+
+[api]
+enabled = true
+
+[db]
+major_version = 17
+
+[studio]
+enabled = true
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+
+[storage]
+enabled = true
+
+[analytics]
+enabled = false

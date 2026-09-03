@@ -6,20 +6,23 @@
   <title>AURORA — Transparent Cognitive Workspace</title>
   <style>
     body{font:15px system-ui,sans-serif;max-width:1100px;margin:40px auto;padding:0 20px;background:#f7f7f5;color:#202124}
-    textarea,input{width:100%;box-sizing:border-box;padding:10px;margin:6px 0 12px;border:1px solid #bbb;border-radius:6px}
-    button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer} .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+    textarea,input,select{width:100%;box-sizing:border-box;padding:10px;margin:6px 0 12px;border:1px solid #bbb;border-radius:6px}
+    button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
     .card{background:white;border:1px solid #ddd;border-radius:10px;padding:18px;margin-top:16px}.answer{white-space:pre-wrap;line-height:1.5}
-    pre{white-space:pre-wrap;overflow:auto}.muted{color:#666}.warning{border-left:4px solid #b55;padding-left:12px}
+    pre{white-space:pre-wrap;overflow:auto}.muted{color:#666}.warning{border-left:4px solid #b55;padding-left:12px}.claim{border:1px solid #ddd;padding:10px;margin:8px 0;border-radius:6px}
     @media(max-width:700px){.grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
   <h1>AURORA</h1>
   <p class="muted">Dawn for Transparent AI — a cognitive workspace with inspectable evidence.</p>
-  <p class="warning">Development interface: authentication and tenant enforcement are not yet enabled. Do not expose this API publicly.</p>
+  <p class="warning">Authenticated development interface. Use a Supabase access token; tenant access is enforced server-side.</p>
+  <div class="card">
+    <label>Supabase access token</label><input id="token" type="password" placeholder="eyJ...">
+    <label>Workspace ID</label><input id="workspace" placeholder="UUID">
+  </div>
   <div class="grid">
     <div class="card">
-      <label>Workspace ID</label><input id="workspace" placeholder="UUID">
       <label>Model (optional)</label><input id="model" placeholder="e.g. openrouter/...">
       <label>Question</label><textarea id="question" rows="8" placeholder="Ask AURORA something..."></textarea>
       <button onclick="ask()">Ask AURORA</button>
@@ -28,18 +31,33 @@
   </div>
   <div class="card"><h2>Answer</h2><div id="answer" class="answer"></div></div>
   <div class="card"><h2>Evidence</h2><div id="evidence" class="muted">No evidence yet.</div></div>
+  <div class="card">
+    <h2>Claim inspection</h2>
+    <button onclick="contradictions()">Find contradictions</button>
+    <div id="claims" class="muted">No contradiction scan yet.</div>
+  </div>
   <script>
+    function headers(){return {'Content-Type':'application/json','Authorization':'Bearer '+document.querySelector('#token').value.trim()};}
     async function ask(){
       const answer=document.querySelector('#answer'), evidence=document.querySelector('#evidence'), trace=document.querySelector('#trace');
       answer.textContent='Investigating…'; evidence.textContent=''; trace.textContent='';
       try{
         const body={workspace_id:document.querySelector('#workspace').value.trim(),question:document.querySelector('#question').value,model:document.querySelector('#model').value.trim()||null};
-        const r=await fetch('/v1/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        const r=await fetch('/v1/ask',{method:'POST',headers:headers(),body:JSON.stringify(body)});
         const data=await r.json(); if(!r.ok) throw new Error(data.detail||r.statusText);
         answer.textContent=data.answer;
         trace.textContent=JSON.stringify(data.trace,null,2)+`\n\nmodel: ${data.model}\nprovider: ${data.provider}`;
-        evidence.innerHTML=data.evidence.length?data.evidence.map((e,i)=>`<article><b>[${i+1}] ${escapeHtml(e.document)}</b> — chunk ${e.chunk_index}, ${e.retrieval}, score ${Number(e.score).toFixed(3)}<p>${escapeHtml(e.content)}</p></article>`).join('<hr>'):'<span class="muted">No matching evidence. AURORA should treat this as an epistemic gap.</span>';
+        evidence.innerHTML=data.evidence.length?data.evidence.map((e,i)=>`<article><b>[${i+1}] ${escapeHtml(e.document)}</b> — chunk ${e.chunk_index}, ${e.retrieval}, score ${Number(e.score).toFixed(3)}<p>${escapeHtml(e.content)}</p><small>Evidence IDs: ${e.evidence_ids.map(escapeHtml).join(', ')}</small></article>`).join('<hr>'):'<span class="muted">No matching evidence. AURORA should treat this as an epistemic gap.</span>';
       }catch(e){answer.textContent='Error: '+e.message;}
+    }
+    async function contradictions(){
+      const el=document.querySelector('#claims'); el.textContent='Scanning…';
+      try{
+        const ws=encodeURIComponent(document.querySelector('#workspace').value.trim());
+        const r=await fetch('/v1/claims/contradictions?workspace_id='+ws,{headers:headers()}); const data=await r.json();
+        if(!r.ok) throw new Error(data.detail||r.statusText);
+        el.innerHTML=data.contradictions.length?data.contradictions.map(c=>`<div class="claim"><b>${escapeHtml(c.subject)}</b> — ${escapeHtml(c.predicate)}<br>${escapeHtml(c.object)} <b>vs</b> ${escapeHtml(c.opposing_object)}<br><small>${escapeHtml(c.claim_id)} ↔ ${escapeHtml(c.opposing_claim_id)}</small></div>`).join(''):'No competing non-rejected assertions detected.';
+      }catch(e){el.textContent='Error: '+e.message;}
     }
     function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
   </script>

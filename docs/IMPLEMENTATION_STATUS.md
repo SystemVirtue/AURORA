@@ -13,58 +13,49 @@
 | Reasoning run persistence | ✅ | run + contribution + provenance event |
 | Event envelope | ✅ | causation/correlation/schema/idempotency fields |
 | Canonical cognitive schema | ✅ | workspace, history, knowledge, cognition, reasoning |
-| Workspace RLS | ✅ | membership boundary; no blanket allow policies |
+| Workspace RLS | ✅ schema | membership policies exist; API service identity enforcement remains to be completed |
 | Temporal state | ✅ | valid-time + record-time ranges |
 | Relationship versioning | ✅ | surrogate IDs + exclusion constraint |
 | Facts vs beliefs | ✅ | `state_type` participates in temporal constraint |
-| Evidence links | ✅ schema | extraction/evaluation layer still evolving |
+| Evidence links | ✅ schema | claim/evidence implementation now being activated |
 | Document ingestion | ✅ | text ingestion + deterministic chunking |
 | Lexical retrieval | ✅ | PostgreSQL full-text retrieval over document chunks |
-| pgvector projection | ✅ schema | embeddings are nullable/rebuildable; semantic generation remains next |
+| Hybrid retrieval | ✅ | lexical + pgvector semantic results fused by reciprocal rank |
+| pgvector projection | ✅ | embeddings are nullable/rebuildable; backfill endpoint added |
 | Epistemic gaps | ✅ initial | missing-evidence gap emitted when retrieval returns none |
-| Generic conversation normalization | ✅ | attributed source/role retained |
+| Conversation normalization | ✅ | ChatGPT, Claude, Gemini and generic structures have adapters |
+| Candidate claims | ✅ primitive | conservative extraction + provenance-ready schema; promotion remains gated |
 | QUORUM substrate | ✅ | contribution preservation/comparison; orchestration remains next |
 | Portable state bundle | ✅ primitive | database-wide exporter/importer remains next |
 | Local deployment | ✅ | Supabase CLI + scripts |
 | Remote migration deployment | ✅ | dry-run then push |
-| CI | ⚠️ | Supabase job passed; Python lint found and fixed in subsequent commits |
+| CI | 🟢 | latest Python lint/tests pass; Supabase migration validation is running |
 
-## Current thin slice
+## Current cognitive path
 
 A real request can now follow the first meaningful portion of:
 
 **ASK → INVESTIGATE → REASON → EXPLAIN → REMEMBER**
 
-Specifically:
+The path now includes lexical/semantic retrieval, persistent reasoning contributions, evidence metadata, candidate claim capture and explicit epistemic gaps. Candidate claims remain unverified by design.
 
-1. create or reuse a session;
-2. record the user message as an event;
-3. retrieve matching document chunks;
-4. pass retrieved context through the Reasoning Gateway;
-5. persist the reasoning run and model contribution;
-6. record the assistant response as an event/message;
-7. return evidence metadata and correlation trace;
-8. emit an epistemic-gap record when no indexed evidence matches.
+## Next execution blocks
 
-This is deliberately a thin slice. It is not yet the full transparent cognitive workspace.
+1. Activate claim/evidence links during ingestion and reasoning.
+2. Add authenticated user identity to the API and bind workspace access to that identity.
+3. Add contradiction detection and belief revision workflows.
+4. Complete portable database export/import with checksums, ordering and dependency-aware restore.
+5. Build evidence/claim/reasoning inspection UI.
+6. Add real selective QUORUM orchestration and measure whether additional models improve the answer.
+7. Add fresh-database reincarnation integration test.
+8. Complete the end-to-end MVP audit.
 
-## Remaining MVP work
+## Explicitly deferred
 
-1. Semantic embedding generation and vector retrieval.
-2. Major LLM conversation importers with provenance reconstruction.
-3. Atomic claim extraction from documents/conversations/model output.
-4. Explicit evidence assessment and claim/evidence graph traversal.
-5. Evidence-aware answer presentation and source inspection UI.
-6. Authenticated API sessions and end-user RLS integration rather than trusted service/database access.
-7. Contradiction detection and belief revision.
-8. Full reasoning/evaluation/synthesis provenance.
-9. Real selective QUORUM orchestration with measurable collective-gain evaluation.
-10. Complete database export/import with checksum verification, ordering and dependency-aware restore.
-11. Fresh-deployment reincarnation test.
-12. Web UI for the cognitive workspace.
+3D UNBOX environment, distributed agent swarm, autonomous self-modification, Kubernetes, enterprise RBAC, billing, marketplace, IDE plugins, NATS everywhere, huge ontology, autonomous web agent and self-training are design targets only, not MVP implementation requirements.
 
 ## Verification policy
 
 Every migration must pass `supabase db reset` locally/CI before remote deployment. Remote changes use migration files and `supabase db push`; direct remote schema edits create migration drift.
 
-A failed CI check is treated as an engineering defect, not ignored. The current Python lint failure was caused by Python 3.12 modernization rules and has been corrected in the follow-up commits.
+A failed CI check is treated as an engineering defect, not ignored.

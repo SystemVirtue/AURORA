@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,7 @@ def export_json_bundle(rows_by_table: dict[str, list[dict[str, Any]]], destinati
     manifest = {
         "format": "aurora-state",
         "version": 1,
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exported_at": datetime.now(UTC).isoformat(),
         "authoritative_tables": TABLES,
         "derived_state": "rebuildable",
     }

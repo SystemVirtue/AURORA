@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from psycopg.types.json import Jsonb
+
 from aurora.cognition import chunk_text, content_hash
 from aurora.continuity import TABLES, verify_json_bundle
 
@@ -41,6 +43,13 @@ def _mapped_row(table: str, row: dict[str, Any], user_id_map: dict[str, str]) ->
         if field in result:
             result[field] = _map_user(result[field], user_id_map)
     return result
+
+
+def _adapt_value(value: Any) -> Any:
+    """Adapt JSON-native values to psycopg types without changing scalar/range values."""
+    if isinstance(value, dict):
+        return Jsonb(value)
+    return value
 
 
 def validate_restore_bundle(
@@ -120,7 +129,7 @@ def restore_workspace(
             for row in rows:
                 conn.execute(
                     f"insert into public.{table} ({quoted}) values ({placeholders})",
-                    [row[column] for column in columns],
+                    [_adapt_value(row[column]) for column in columns],
                 )
             inserted[table] = len(rows)
         rebuilt = rebuild_document_chunks(conn, workspace_id)

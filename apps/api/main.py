@@ -1,4 +1,4 @@
-# ruff: noqa: E701,E702
+# ruff: noqa: B008, E701, E702, I001
 from __future__ import annotations
 
 import json
@@ -24,9 +24,7 @@ from aurora.gateway import ReasoningError, ReasoningGateway
 
 app = FastAPI(title="AURORA", version="0.6.0")
 bearer = HTTPBearer(auto_error=False)
-
-if settings.allowed_cors_origins:
-    app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_cors_origins, allow_credentials=True, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Authorization", "Content-Type", "Accept"], max_age=600)
+if settings.allowed_cors_origins: app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_cors_origins, allow_credentials=True, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Authorization", "Content-Type", "Accept"], max_age=600)
 
 class AskRequest(BaseModel):
     workspace_id: uuid.UUID
@@ -54,8 +52,7 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
     if credentials is None or credentials.scheme.lower() != "bearer": raise HTTPException(401, "Bearer authentication required")
     if not settings.supabase_jwt_secret: raise HTTPException(503, "SUPABASE_JWT_SECRET is not configured")
     try:
-        payload = jwt.decode(credentials.credentials, settings.supabase_jwt_secret, algorithms=["HS256"], options={"require": ["exp", "sub"]}, leeway=10)
-        return uuid.UUID(str(payload["sub"]))
+        payload = jwt.decode(credentials.credentials, settings.supabase_jwt_secret, algorithms=["HS256"], options={"require": ["exp", "sub"]}, leeway=10); return uuid.UUID(str(payload["sub"]))
     except (jwt.PyJWTError, ValueError, KeyError) as exc: raise HTTPException(401, "Invalid authentication token") from exc
 
 def require_workspace_access(conn, workspace_id: uuid.UUID, user_id: uuid.UUID) -> None:
@@ -68,13 +65,10 @@ def _question_terms(text: str) -> set[str]:
     return {token for token in re.findall(r"[a-z0-9]{3,}", text.lower()) if token not in {"the", "and", "that", "this", "with", "from"}}
 
 def _relevant_contradiction_count(conn, workspace_id: uuid.UUID, question: str) -> int:
-    rows = conn.execute("select subject, predicate, object, opposing_object from public.claim_contradictions(%s)", (workspace_id,)).fetchall()
-    terms = _question_terms(question)
+    rows = conn.execute("select subject, predicate, object, opposing_object from public.claim_contradictions(%s)", (workspace_id,)).fetchall(); terms = _question_terms(question)
     return sum(1 for row in rows if terms & _question_terms(" ".join(str(value or "") for value in row))) if terms else 0
 
-app.include_router(revision_router)
-app.include_router(provenance_router)
-app.include_router(continuity_router)
+app.include_router(revision_router); app.include_router(provenance_router); app.include_router(continuity_router)
 
 @app.get("/", include_in_schema=False)
 def workspace_ui() -> FileResponse: return FileResponse(Path(__file__).resolve().parents[1] / "web" / "index.html")
@@ -92,8 +86,7 @@ def health_db() -> dict[str, str]:
 def claim_contradictions(workspace_id: uuid.UUID, user_id: uuid.UUID = Depends(current_user)) -> dict:
     if not settings.database_url: raise HTTPException(503, "DATABASE_URL is not configured")
     with psycopg.connect(settings.database_url) as conn:
-        require_workspace_access(conn, workspace_id, user_id)
-        rows = conn.execute("select claim_id, opposing_claim_id, subject, predicate, object, opposing_object from public.claim_contradictions(%s)", (workspace_id,)).fetchall()
+        require_workspace_access(conn, workspace_id, user_id); rows = conn.execute("select claim_id, opposing_claim_id, subject, predicate, object, opposing_object from public.claim_contradictions(%s)", (workspace_id,)).fetchall()
     return {"workspace_id": str(workspace_id), "count": len(rows), "contradictions": [{"claim_id": str(r[0]), "opposing_claim_id": str(r[1]), "subject": r[2], "predicate": r[3], "object": r[4], "opposing_object": r[5]} for r in rows]}
 
 @app.post("/v1/sessions")

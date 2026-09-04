@@ -1,6 +1,12 @@
 -- Candidate claim provenance and contradiction helpers.
-create index claims_workspace_status_idx on public.claims(workspace_id, assertion_status, created_at desc);
-create index evidence_workspace_source_idx on public.evidence(workspace_id, source_id, created_at desc);
+-- Evidence may now point to the exact derived document chunk that contains its excerpt.
+alter table public.evidence
+  add column if not exists document_chunk_id uuid references public.document_chunks(id) on delete set null;
+
+create index if not exists evidence_workspace_chunk_idx
+  on public.evidence(workspace_id, document_chunk_id, created_at desc);
+create index if not exists claims_workspace_status_idx on public.claims(workspace_id, assertion_status, created_at desc);
+create index if not exists evidence_workspace_source_idx on public.evidence(workspace_id, source_id, created_at desc);
 
 create or replace function public.claim_contradictions(target_workspace uuid)
 returns table (claim_id uuid, opposing_claim_id uuid, subject text, predicate text, object text, opposing_object text)

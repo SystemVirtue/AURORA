@@ -8,6 +8,32 @@ create index if not exists evidence_workspace_chunk_idx
 create index if not exists claims_workspace_status_idx on public.claims(workspace_id, assertion_status, created_at desc);
 create index if not exists evidence_workspace_source_idx on public.evidence(workspace_id, source_id, created_at desc);
 
+create or replace function public.bind_evidence_chunk()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public
+as $$
+begin
+  if new.document_chunk_id is null and new.excerpt is not null and length(trim(new.excerpt)) > 0 then
+    select dc.id into new.document_chunk_id
+      from public.document_chunks dc
+      join public.documents d on d.id = dc.document_id
+     where dc.workspace_id = new.workspace_id
+       and (new.source_id is null or d.source_id = new.source_id)
+       and position(trim(new.excerpt) in dc.content) > 0
+     order by dc.chunk_index, dc.id
+     limit 1;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists evidence_bind_chunk on public.evidence;
+create trigger evidence_bind_chunk
+before insert or update of excerpt, source_id, document_chunk_id on public.evidence
+for each row execute function public.bind_evidence_chunk();
+
 create or replace function public.claim_contradictions(target_workspace uuid)
 returns table (claim_id uuid, opposing_claim_id uuid, subject text, predicate text, object text, opposing_object text)
 language sql stable security invoker

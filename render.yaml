@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: aurora-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: AURORA_ENV
+        value: production
+      - key: AURORA_HOST
+        value: 0.0.0.0
+      - key: AURORA_PORT
+        value: "8000"
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: AURORA_CORS_ORIGINS
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: AURORA_DEFAULT_MODEL
+        value: openrouter/openai/gpt-5-mini
+      - key: AURORA_EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: AURORA_REASONING_MODE
+        value: balanced
+      - key: AURORA_QUORUM_MODELS
+        sync: false

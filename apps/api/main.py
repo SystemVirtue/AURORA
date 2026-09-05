@@ -1,79 +1,86 @@
+# ruff: noqa: B008, I001
 from __future__ import annotations
 
 import json
+import re
 import uuid
-from datetime import datetime, timezone
+from pathlib import Path
 
+import jwt
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException
-
-from aurora.claims import extract_candidate_claims, persist_candidate_claims
-from aurora.cognition import create_source_and_document, merge_retrieval_results, record_message, retrieve_lexical, retrieve_semantic
-from aurora.core import ReasoningError, Settings, event_envelope, require_session_access, require_workspace_access
-from aurora.gateway import ReasoningGateway
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-settings = Settings()
-app = FastAPI(title="AURORA", version="0.1.0")
+from apps.api.continuity_routes import router as continuity_router
+from apps.api.provenance_routes import router as provenance_router
+from apps.api.revision_routes import router as revision_router
+from aurora.claims import extract_candidate_claims, persist_candidate_claims
+from aurora.cognition import create_source_and_document, merge_retrieval_results, record_message, retrieve_lexical, retrieve_semantic
+from aurora.core import event_envelope, settings
+from aurora.gateway import ReasoningError, ReasoningGateway
 
-
-class SessionRequest(BaseModel):
-    workspace_id: uuid.UUID
-    title: str = Field(default="AURORA session", max_length=200)
-
-
-class DocumentRequest(BaseModel):
-    workspace_id: uuid.UUID
-    name: str = Field(min_length=1, max_length=500)
-    content: str = Field(min_length=1)
-    mime_type: str = "text/plain"
-
+app = FastAPI(title="AURORA", version="0.6.0")
+bearer = HTTPBearer(auto_error=False)
+if settings.allowed_cors_origins: app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_cors_origins, allow_credentials=True, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Authorization", "Content-Type", "Accept"], max_age=600)
 
 class AskRequest(BaseModel):
     workspace_id: uuid.UUID
-    question: str = Field(min_length=1)
+    question: str = Field(min_length=1, max_length=10000)
     session_id: uuid.UUID | None = None
     model: str | None = None
     mode: str = "balanced"
 
+class DocumentRequest(BaseModel):
+    workspace_id: uuid.UUID
+    name: str = Field(min_length=1, max_length=500)
+    content: str = Field(min_length=1, max_length=2_000_000)
+    mime_type: str = "text/plain"
+
+class SessionRequest(BaseModel):
+    workspace_id: uuid.UUID
+    title: str | None = Field(default=None, max_length=500)
 
 class ReindexRequest(BaseModel):
     workspace_id: uuid.UUID
     document_id: uuid.UUID | None = None
-    batch_size: int = Field(default=16, ge=1, le=100)
+    batch_size: int = Field(default=32, ge=1, le=128)
 
-
-def current_user(authorization: str | None = None) -> uuid.UUID:
-    # Existing auth implementation retained; dependency validates the bearer JWT.
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Bearer token required")
+def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> uuid.UUID:
+    if credentials is None or credentials.scheme.lower() != "bearer": raise HTTPException(401, "Bearer authentication required")
+    if not settings.supabase_jwt_secret: raise HTTPException(503, "SUPABASE_JWT_SECRET is not configured")
     try:
-        import jwt
-        payload = jwt.decode(authorization[7:], settings.supabase_jwt_secret, algorithms=["HS256"])
-        return uuid.UUID(str(payload["sub"]))
-    except Exception as exc:
-        raise HTTPException(401, "Invalid authentication token") from exc
+        payload = jwt.decode(credentials.credentials, settings.supabase_jwt_secret, algorithms=["HS256"], options={"require": ["exp", "sub"]}, leeway=10); return uuid.UUID(str(payload["sub"]))
+    except (jwt.PyJWTError, ValueError, KeyError) as exc: raise HTTPException(401, "Invalid authentication token") from exc
 
+def require_workspace_access(conn, workspace_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    if not conn.execute("select 1 from public.workspace_members where workspace_id=%s and user_id=%s", (workspace_id, user_id)).fetchone(): raise HTTPException(403, "User is not a member of this workspace")
+
+def require_session_access(conn, session_id: uuid.UUID, workspace_id: uuid.UUID, user_id: uuid.UUID) -> None:
+    if not conn.execute("select 1 from public.sessions s join public.workspace_members wm on wm.workspace_id=s.workspace_id where s.id=%s and s.workspace_id=%s and wm.user_id=%s", (session_id, workspace_id, user_id)).fetchone(): raise HTTPException(404, "Session not found")
+
+def _question_terms(text: str) -> set[str]:
+    return {token for token in re.findall(r"[a-z0-9]{3,}", text.lower()) if token not in {"the", "and", "that", "this", "with", "from"}}
 
 def _relevant_contradiction_count(conn, workspace_id: uuid.UUID, question: str) -> int:
-    rows = conn.execute("select subject, predicate, object, opposing_object from public.claim_contradictions(%s)", (workspace_id,)).fetchall()
-    terms = set(question.lower().split())
-    return sum(1 for row in rows if terms & {str(value).lower() for value in row if value})
+    rows = conn.execute("select subject, predicate, object, opposing_object from public.claim_contradictions(%s)", (workspace_id,)).fetchall(); terms = _question_terms(question)
+    return sum(1 for row in rows if terms & _question_terms(" ".join(str(value or "") for value in row))) if terms else 0
 
+app.include_router(revision_router); app.include_router(provenance_router); app.include_router(continuity_router)
+
+@app.get("/", include_in_schema=False)
+def workspace_ui() -> FileResponse: return FileResponse(Path(__file__).resolve().parents[1] / "web" / "index.html")
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "service": "aurora"}
-
+def health() -> dict[str, str]: return {"status": "ok", "service": "aurora-api"}
 
 @app.get("/health/db")
 def health_db() -> dict[str, str]:
-    if not settings.database_url:
-        raise HTTPException(503, "DATABASE_URL is not configured")
-    with psycopg.connect(settings.database_url) as conn:
-        conn.execute("select 1")
+    if not settings.database_url: raise HTTPException(503, "DATABASE_URL is not configured")
+    with psycopg.connect(settings.database_url) as conn: conn.execute("select 1")
     return {"status": "ok", "database": "reachable"}
-
 
 @app.get("/v1/claims/contradictions")
 def claim_contradictions(workspace_id: uuid.UUID, user_id: uuid.UUID = Depends(current_user)) -> dict:
@@ -151,6 +158,6 @@ async def ask(request: AskRequest, user_id: uuid.UUID = Depends(current_user)) -
         if quorum:
             quorum_event_id = uuid.uuid4(); conn.execute("insert into public.events (id,workspace_id,session_id,event_type,producer_type,event_time,recorded_at,correlation_id,aggregate_type,aggregate_id,schema_version,payload) values (%s,%s,%s,'reasoning.quorum_completed','system',%s,%s,%s,'reasoning_run',%s,1,%s::jsonb)", (quorum_event_id, request.workspace_id, session_id, result["event_time"], result["event_time"], correlation_id, reasoning_run_id, json.dumps({"quorum": quorum}, default=str)))
         conn.commit()
-    response = {"session_id": str(session_id), "reasoning_run_id": str(reasoning_run_id), "answer": result["answer"], "evidence": retrieved, "evidence_ids": evidence_ids, "model": result["model"], "provider": result.get("provider"), "latency_ms": result.get("latency_ms"), "trace": {"correlation_id": str(correlation_id), "reasoning_event_id": str(reasoning_event_id), "assistant_event_id": str(assistant_event_id), "quorum_event_id": str(quorum_event_id) if quorum_event_id else None}, "warrant": quorum.get("warrant") if quorum else warrant, "quorum": quorum}
-    if not retrieved: response["epistemic_gap"] = {"type": "missing_evidence", "severity": 0.8}
+    response = {"session_id": str(session_id), "reasoning_run_id": str(reasoning_run_id), "answer": result["answer"], "evidence": retrieved, "evidence_ids": evidence_ids, "model": result["model"], "provider": result.get("provider"), "latency_ms": result.get("latency_ms"), "trace": {"correlation_id": str(correlation_id), "user_event_id": str(_user_event_id), "assistant_event_id": str(assistant_event_id), "warrant": quorum.get("warrant") if quorum else warrant}}
+    if quorum: response["quorum"] = quorum; response["trace"]["quorum_event_id"] = str(quorum_event_id)
     return response

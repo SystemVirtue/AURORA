@@ -1,14 +1,17 @@
 import json
 
-from aurora.continuity import export_json_bundle, verify_json_bundle
+from aurora.continuity import TABLES, export_json_bundle, verify_json_bundle
 
 
 def test_export_writes_manifest_and_checksums(tmp_path):
     root = export_json_bundle({"events": [{"id": "1", "event_type": "test"}]}, tmp_path / "export")
     manifest = json.loads((root / "manifest.json").read_text())
     assert manifest["format"] == "aurora-state"
-    assert manifest["version"] == 2
+    assert manifest["version"] == 3
+    assert manifest["authoritative_tables"] == TABLES
+    assert "tasks" in manifest["authoritative_tables"]
     assert "events.json" in manifest["checksums"]
+    assert "tasks.json" in manifest["checksums"]
     assert (root / "events.json").exists()
     assert verify_json_bundle(root)["valid"] is True
 

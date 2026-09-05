@@ -26,8 +26,10 @@ jobs:
         with:
           node-version: '20'
       - run: node --check apps/web/app.js
+      - run: node --check apps/web/model_access.js
       - run: test -s apps/web/index.html
       - run: grep -q 'src="/app.js"' apps/web/index.html
+      - run: grep -q 'src="/model_access.js"' apps/web/index.html
       - run: grep -q 'id="token"' apps/web/index.html
       - run: grep -q 'id="refreshToken"' apps/web/index.html
 

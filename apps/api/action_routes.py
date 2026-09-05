@@ -9,9 +9,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from aurora.core import settings
+from apps.api.import_routes import router as import_router
 
 router = APIRouter(tags=["actions"])
 bearer = HTTPBearer(auto_error=False)
+router.include_router(import_router)
 
 
 def _user(credentials: HTTPAuthorizationCredentials | None) -> uuid.UUID:

@@ -120,13 +120,12 @@
       synthesis = await puterCall(synthesisModel, `You are the AURORA synthesis model. Preserve material disagreement, distinguish evidence from model assertions, identify uncertainty, and answer the original question.\n\nOriginal question:\n${question}\n\nIndependent contributions:\n${deliberation}`);
     }
     const body = {
-      workspace_id: workspace(), question, session_id: state.sessionId || null, mode,
+      workspace_id: workspace(), question, session_id: localStorage.getItem('aurora.session_id') || null, mode,
       contributions: contributors.map(c => ({ model: c.model, provider: 'puter', response: c.response, latency_ms: c.latency_ms })),
       synthesis: synthesis ? { model: synthesis.model, response: synthesis.response, latency_ms: synthesis.latency_ms } : null,
     };
     const persisted = await api('/v1/ask/puter', { method: 'POST', body: JSON.stringify(body) });
-    state.sessionId = persisted.session_id;
-    localStorage.setItem('aurora.session_id', state.sessionId);
+    localStorage.setItem('aurora.session_id', persisted.session_id);
     return persisted;
   }
 

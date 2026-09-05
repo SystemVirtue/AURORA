@@ -10,7 +10,7 @@
 <body>
 <header><h1>AURORA</h1><p class="muted">Dawn for Transparent AI — a persistent, inspectable cognitive workspace.</p><p class="warning">MVP workspace client. Authentication uses Supabase; provider API keys never belong in the browser.</p></header>
 
-<section class="card"><h2>Identity & workspace</h2><div class="grid"><div><label>Supabase project URL</label><input id="supabaseUrl" placeholder="https://your-project.supabase.co"><label>Supabase publishable key</label><input id="publishableKey" type="password" autocomplete="off"><label>Email</label><input id="email" type="email" autocomplete="username"><label>Password</label><input id="password" type="password" autocomplete="current-password"><div class="row"><button onclick="signIn()">Sign in</button><button class="secondary" onclick="refreshSession()">Refresh session</button><button class="secondary" onclick="signOut()">Sign out</button></div><div id="authStatus" class="status muted"></div></div><div><label>Workspace</label><select id="workspaceList" onchange="chooseWorkspace()"><option value="">Sign in to load workspaces</option></select><input id="workspace" placeholder="Workspace UUID"><div class="row"><input id="workspaceName" placeholder="New workspace name"><button onclick="createWorkspace()">Create workspace</button></div><div id="workspaceStatus" class="status muted"></div><div class="row"><button onclick="loadWorkspaces()">Reload workspaces</button><button class="secondary" onclick="saveLocal()">Save locally</button><button class="secondary" onclick="health()">Test API</button><span id="connection" class="status muted"></span></div></div></div></section>
+<section class="card"><h2>Identity & workspace</h2><div class="grid"><div><label>Supabase project URL</label><input id="supabaseUrl" placeholder="https://your-project.supabase.co"><label>Supabase publishable key</label><input id="publishableKey" type="password" autocomplete="off"><label>Email</label><input id="email" type="email" autocomplete="username"><label>Password</label><input id="password" type="password" autocomplete="current-password"><input id="token" type="hidden"><input id="refreshToken" type="hidden"><div class="row"><button onclick="signIn()">Sign in</button><button class="secondary" onclick="refreshSession()">Refresh session</button><button class="secondary" onclick="signOut()">Sign out</button></div><div id="authStatus" class="status muted"></div></div><div><label>Workspace</label><select id="workspaceList" onchange="chooseWorkspace()"><option value="">Sign in to load workspaces</option></select><input id="workspace" placeholder="Workspace UUID"><div class="row"><input id="workspaceName" placeholder="New workspace name"><button onclick="createWorkspace()">Create workspace</button></div><div id="workspaceStatus" class="status muted"></div><div class="row"><button onclick="loadWorkspaces()">Reload workspaces</button><button class="secondary" onclick="saveLocal()">Save locally</button><button class="secondary" onclick="health()">Test API</button><span id="connection" class="status muted"></span></div></div></div></section>
 
 <section class="grid"><div class="card"><h2>1. Investigate — ingest evidence</h2><label>Document name</label><input id="docname" placeholder="source.txt"><label>Document content</label><textarea id="doccontent" rows="7" placeholder="Paste source material here…"></textarea><button onclick="ingest()">Ingest document</button><div id="ingestStatus" class="status muted"></div></div><div class="card"><h2>2. Ask — reason over the workspace</h2><label>Model (optional)</label><input id="model" placeholder="openrouter/... (leave blank for configured default)"><label>Reasoning mode</label><select id="mode"><option value="balanced">Balanced — selective escalation</option><option value="fast">Fast</option><option value="deep">Deep — QUORUM</option><option value="quorum">QUORUM — explicit deliberation</option></select><label>Question</label><textarea id="question" rows="7" placeholder="What does the evidence show?"></textarea><button onclick="ask()">Ask AURORA</button></div></section>
 <section class="card"><h2>Answer</h2><div id="answer" class="answer muted">No reasoning run yet.</div></section>
@@ -26,4 +26,32 @@
 
 <section class="card"><h2>Continuity / machine reincarnation</h2><p class="muted">Export authoritative cognitive state as a deterministic, checksummed bundle. Restore is currently an authenticated development operation and this client performs a dry-run.</p><div class="row"><button onclick="exportState()">Export workspace</button><button class="secondary" onclick="document.querySelector('#restoreBundle').click()">Validate restore bundle</button><input id="restoreBundle" type="file" accept="application/json,.json" hidden onchange="restoreState(this)"></div><div id="continuity" class="status muted"></div></section>
 <script src="/app.js"></script>
+<script>
+(() => {
+  async function refreshGoalChoices() {
+    if (typeof workspace !== 'function' || typeof api !== 'function') return;
+    const id = workspace();
+    if (!id || !token()) return;
+    try {
+      const data = await api(`/v1/goals?workspace_id=${encodeURIComponent(id)}`);
+      const select = document.getElementById('taskGoal');
+      const current = select.value;
+      select.innerHTML = '<option value="">No goal</option>' + (data.goals || []).map(g => `<option value="${esc(g.id)}">${esc(g.title)}</option>`).join('');
+      if ((data.goals || []).some(g => g.id === current)) select.value = current;
+    } catch {}
+  }
+  const originalLoadGoals = window.loadGoals;
+  if (originalLoadGoals) window.loadGoals = async function () {
+    await originalLoadGoals();
+    await refreshGoalChoices();
+  };
+  document.addEventListener('DOMContentLoaded', async () => {
+    if (typeof loadLocal === 'function') loadLocal();
+    if (token() && typeof loadWorkspaces === 'function') {
+      await loadWorkspaces();
+      if (typeof loadWorkspaceState === 'function') await loadWorkspaceState();
+    }
+  });
+})();
+</script>
 </body></html>

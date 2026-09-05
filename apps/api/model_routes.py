@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import httpx
-from fastapi import APIRouter, HTTPException
+import psycopg
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from aurora.cognition import merge_retrieval_results, retrieve_lexical
+from aurora.core import settings
 
 router = APIRouter(prefix="/v1", tags=["models"])
+bearer = HTTPBearer(auto_error=False)
 
 
 @router.get("/models")
@@ -29,19 +35,45 @@ async def list_models(provider: str = "openrouter", free_only: bool = True) -> d
         pricing = item.get("pricing") or {}
         prompt = str(pricing.get("prompt", ""))
         completion = str(pricing.get("completion", ""))
-        if free_only and not (prompt in {"0", "0.0", "0.00"} and completion in {"0", "0.0", "0.00"}):
+        is_free = prompt in {"0", "0.0", "0.00"} and completion in {"0", "0.0", "0.00"}
+        if free_only and not is_free:
             continue
-        models.append(
-            {
-                "id": item.get("id"),
-                "name": item.get("name") or item.get("id"),
-                "provider": "openrouter",
-                "cost": {"input": prompt, "output": completion, "currency": "USD_per_token"},
-                "context_length": item.get("context_length"),
-                "architecture": item.get("architecture"),
-                "supported_parameters": item.get("supported_parameters", []),
-                "free": prompt in {"0", "0.0", "0.00"} and completion in {"0", "0.0", "0.00"},
-            }
-        )
+        models.append({
+            "id": item.get("id"),
+            "name": item.get("name") or item.get("id"),
+            "provider": "openrouter",
+            "cost": {"input": prompt, "output": completion, "currency": "USD_per_token"},
+            "context_length": item.get("context_length"),
+            "architecture": item.get("architecture"),
+            "supported_parameters": item.get("supported_parameters", []),
+            "free": is_free,
+        })
     models.sort(key=lambda model: (str(model.get("name") or "").lower(), str(model.get("id") or "")))
     return {"provider": "openrouter", "free_only": free_only, "count": len(models), "models": models}
+
+
+@router.get("/retrieval")
+def retrieval(
+    workspace_id: str,
+    question: str,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    """Authenticated lexical retrieval for browser-executed providers such as Puter."""
+    from apps.api.main import current_user
+
+    user_id = current_user(credentials)
+    if not settings.database_url:
+        raise HTTPException(503, "DATABASE_URL is not configured")
+    try:
+        with psycopg.connect(settings.database_url) as conn:
+            member = conn.execute(
+                "select 1 from public.workspace_members where workspace_id=%s and user_id=%s",
+                (workspace_id, user_id),
+            ).fetchone()
+            if not member:
+                raise HTTPException(403, "User is not a member of this workspace")
+            lexical = retrieve_lexical(conn, workspace_id=workspace_id, question=question)
+            retrieved = merge_retrieval_results(lexical, [], limit=8)
+    except psycopg.Error as exc:
+        raise HTTPException(503, "Workspace retrieval failed") from exc
+    return {"workspace_id": workspace_id, "question": question, "evidence": retrieved}

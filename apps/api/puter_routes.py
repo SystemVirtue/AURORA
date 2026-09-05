@@ -126,7 +126,6 @@ def ask_puter(
                 "synthesis_model": answer_model,
             }
 
-        started_at = request.contributions[0].latency_ms
         conn.execute(
             """insert into public.reasoning_runs
             (id,workspace_id,session_id,question,mode,status,answer,confidence,started_at,completed_at,metadata)

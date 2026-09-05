@@ -116,6 +116,12 @@ def main() -> None:
             )
             assert restored.status_code == 200, restored.text
             assert restored.json()["rebuilt"]["document_chunks"] > 0
+            with psycopg.connect(DB_URL) as conn:
+                evidence = conn.execute(
+                    "select count(*) from public.evidence where workspace_id=%s and document_chunk_id is not null",
+                    (WORKSPACE_ID,),
+                ).fetchone()[0]
+            assert evidence == 2
 
             reindexed = client.post(
                 "/v1/reindex/embeddings", headers=headers,

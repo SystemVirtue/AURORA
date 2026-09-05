@@ -57,6 +57,11 @@ def _mapped_row(table: str, row: dict[str, Any], user_id_map: dict[str, str]) ->
     for field in AUTH_USER_FIELDS.get(table, ()):
         if field in result:
             result[field] = _map_user(result[field], user_id_map)
+    # document_chunk_id is derived state. Its UUID belongs to the source runtime
+    # and must never be restored as authoritative state. The evidence trigger will
+    # bind the evidence to the freshly rebuilt chunk using source + excerpt.
+    if table == "evidence" and "document_chunk_id" in result:
+        result["document_chunk_id"] = None
     for field in RANGE_FIELDS.intersection(result):
         value = result[field]
         if isinstance(value, str):
@@ -136,11 +141,14 @@ def restore_workspace(
         return {"restored": False, "dry_run": True, "rows": validation["rows"], "order": RESTORE_ORDER}
 
     inserted: dict[str, int] = {}
+    rebuilt = 0
     try:
         for table in RESTORE_ORDER:
             rows = rows_by_table[table]
             inserted[table] = 0
             if not rows:
+                if table == "documents":
+                    rebuilt = rebuild_document_chunks(conn, workspace_id)
                 continue
             columns = list(rows[0].keys())
             placeholders = ",".join(["%s"] * len(columns))
@@ -151,7 +159,11 @@ def restore_workspace(
                     [_adapt_value(row[column]) for column in columns],
                 )
             inserted[table] = len(rows)
-        rebuilt = rebuild_document_chunks(conn, workspace_id)
+            if table == "documents":
+                # Evidence references derived chunks, so chunks must exist before
+                # evidence rows are inserted. The evidence trigger then rebinds
+                # each excerpt to the fresh chunk UUID.
+                rebuilt = rebuild_document_chunks(conn, workspace_id)
         conn.commit()
     except Exception:
         conn.rollback()

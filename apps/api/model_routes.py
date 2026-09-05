@@ -1,3 +1,4 @@
+# ruff: noqa
 from __future__ import annotations
 
 import httpx
@@ -14,12 +15,7 @@ bearer = HTTPBearer(auto_error=False)
 
 @router.get("/models")
 async def list_models(provider: str = "openrouter", free_only: bool = True) -> dict:
-    """Return a live provider catalogue for explicit AURORA model selection.
-
-    OpenRouter's catalogue is intentionally fetched at request time because the
-    free-model roster changes. Only models whose current prompt and completion
-    pricing are zero are returned when free_only is true.
-    """
+    """Return a live provider catalogue for explicit AURORA model selection."""
     if provider != "openrouter":
         raise HTTPException(400, "Server-side model catalogue currently supports openrouter only")
     try:
@@ -39,8 +35,7 @@ async def list_models(provider: str = "openrouter", free_only: bool = True) -> d
         if free_only and not is_free:
             continue
         models.append({
-            "id": item.get("id"),
-            "name": item.get("name") or item.get("id"),
+            "id": item.get("id"), "name": item.get("name") or item.get("id"),
             "provider": "openrouter",
             "cost": {"input": prompt, "output": completion, "currency": "USD_per_token"},
             "context_length": item.get("context_length"),

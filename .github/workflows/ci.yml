@@ -28,6 +28,8 @@ jobs:
       - run: node --check apps/web/app.js
       - run: test -s apps/web/index.html
       - run: grep -q 'src="/app.js"' apps/web/index.html
+      - run: grep -q 'id="token"' apps/web/index.html
+      - run: grep -q 'id="refreshToken"' apps/web/index.html
 
   supabase:
     runs-on: ubuntu-latest
@@ -47,4 +49,5 @@ jobs:
       - run: python scripts/test-reincarnation.py
       - run: pip install 'httpx>=0.28,<1'
       - run: PYTHONPATH=. python scripts/test-api-quorum.py
+      - run: PYTHONPATH=. python scripts/test-mvp-acceptance.py
       - run: PYTHONPATH=. python scripts/benchmark-quorum.py

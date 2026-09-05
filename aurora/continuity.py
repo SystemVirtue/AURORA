@@ -9,14 +9,14 @@ from typing import Any
 TABLES = [
     "workspaces", "workspace_members", "sources", "sessions", "events", "messages",
     "documents", "claims", "evidence", "entities", "relationships", "beliefs", "memories",
-    "goals", "decisions", "reasoning_runs", "model_contributions", "epistemic_gaps",
+    "goals", "tasks", "decisions", "reasoning_runs", "model_contributions", "epistemic_gaps",
 ]
 
 # Tables with a direct workspace_id can be exported with one predicate. These two
 # require joins through their parent aggregate to preserve tenant boundaries.
 DIRECT_WORKSPACE_TABLES = [
     "sources", "sessions", "events", "messages", "documents", "claims", "evidence",
-    "entities", "relationships", "beliefs", "memories", "goals", "decisions",
+    "entities", "relationships", "beliefs", "memories", "goals", "tasks", "decisions",
     "reasoning_runs", "epistemic_gaps",
 ]
 
@@ -37,7 +37,7 @@ def export_json_bundle(rows_by_table: dict[str, list[dict[str, Any]]], destinati
     root.mkdir(parents=True, exist_ok=True)
     manifest = {
         "format": "aurora-state",
-        "version": 2,
+        "version": 3,
         "exported_at": datetime.now(UTC).isoformat(),
         "authoritative_tables": TABLES,
         "derived_state": "rebuildable",

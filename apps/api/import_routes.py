@@ -1,3 +1,4 @@
+# ruff: noqa: B008
 from __future__ import annotations
 
 import uuid
@@ -11,8 +12,8 @@ from aurora.core import settings
 from aurora.importers import (
     import_chatgpt_export,
     import_claude_export,
-    import_generic_conversation,
     import_gemini_export,
+    import_generic_conversation,
 )
 
 router = APIRouter(tags=["imports"])

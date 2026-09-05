@@ -14,7 +14,7 @@ from aurora.continuity import TABLES, verify_json_bundle
 RESTORE_ORDER = [
     "workspaces", "workspace_members", "sources", "sessions", "events", "messages",
     "documents", "claims", "evidence", "entities", "relationships", "beliefs", "memories",
-    "goals", "decisions", "reasoning_runs", "model_contributions", "epistemic_gaps",
+    "goals", "tasks", "decisions", "reasoning_runs", "model_contributions", "epistemic_gaps",
 ]
 
 AUTH_USER_FIELDS = {

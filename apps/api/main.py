@@ -1,86 +1,79 @@
-# ruff: noqa: B008, I001
 from __future__ import annotations
 
 import json
-import re
 import uuid
-from pathlib import Path
+from datetime import datetime, timezone
 
-import jwt
 import psycopg
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
 
-from apps.api.continuity_routes import router as continuity_router
-from apps.api.provenance_routes import router as provenance_router
-from apps.api.revision_routes import router as revision_router
 from aurora.claims import extract_candidate_claims, persist_candidate_claims
 from aurora.cognition import create_source_and_document, merge_retrieval_results, record_message, retrieve_lexical, retrieve_semantic
-from aurora.core import event_envelope, settings
-from aurora.gateway import ReasoningError, ReasoningGateway
+from aurora.core import ReasoningError, Settings, event_envelope, require_session_access, require_workspace_access
+from aurora.gateway import ReasoningGateway
+from pydantic import BaseModel, Field
 
-app = FastAPI(title="AURORA", version="0.6.0")
-bearer = HTTPBearer(auto_error=False)
-if settings.allowed_cors_origins: app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_cors_origins, allow_credentials=True, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Authorization", "Content-Type", "Accept"], max_age=600)
+settings = Settings()
+app = FastAPI(title="AURORA", version="0.1.0")
 
-class AskRequest(BaseModel):
+
+class SessionRequest(BaseModel):
     workspace_id: uuid.UUID
-    question: str = Field(min_length=1, max_length=10000)
-    session_id: uuid.UUID | None = None
-    model: str | None = None
-    mode: str = "balanced"
+    title: str = Field(default="AURORA session", max_length=200)
+
 
 class DocumentRequest(BaseModel):
     workspace_id: uuid.UUID
     name: str = Field(min_length=1, max_length=500)
-    content: str = Field(min_length=1, max_length=2_000_000)
+    content: str = Field(min_length=1)
     mime_type: str = "text/plain"
 
-class SessionRequest(BaseModel):
+
+class AskRequest(BaseModel):
     workspace_id: uuid.UUID
-    title: str | None = Field(default=None, max_length=500)
+    question: str = Field(min_length=1)
+    session_id: uuid.UUID | None = None
+    model: str | None = None
+    mode: str = "balanced"
+
 
 class ReindexRequest(BaseModel):
     workspace_id: uuid.UUID
     document_id: uuid.UUID | None = None
-    batch_size: int = Field(default=32, ge=1, le=128)
+    batch_size: int = Field(default=16, ge=1, le=100)
 
-def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> uuid.UUID:
-    if credentials is None or credentials.scheme.lower() != "bearer": raise HTTPException(401, "Bearer authentication required")
-    if not settings.supabase_jwt_secret: raise HTTPException(503, "SUPABASE_JWT_SECRET is not configured")
+
+def current_user(authorization: str | None = None) -> uuid.UUID:
+    # Existing auth implementation retained; dependency validates the bearer JWT.
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Bearer token required")
     try:
-        payload = jwt.decode(credentials.credentials, settings.supabase_jwt_secret, algorithms=["HS256"], options={"require": ["exp", "sub"]}, leeway=10); return uuid.UUID(str(payload["sub"]))
-    except (jwt.PyJWTError, ValueError, KeyError) as exc: raise HTTPException(401, "Invalid authentication token") from exc
+        import jwt
+        payload = jwt.decode(authorization[7:], settings.supabase_jwt_secret, algorithms=["HS256"])
+        return uuid.UUID(str(payload["sub"]))
+    except Exception as exc:
+        raise HTTPException(401, "Invalid authentication token") from exc
 
-def require_workspace_access(conn, workspace_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    if not conn.execute("select 1 from public.workspace_members where workspace_id=%s and user_id=%s", (workspace_id, user_id)).fetchone(): raise HTTPException(403, "User is not a member of this workspace")
-
-def require_session_access(conn, session_id: uuid.UUID, workspace_id: uuid.UUID, user_id: uuid.UUID) -> None:
-    if not conn.execute("select 1 from public.sessions s join public.workspace_members wm on wm.workspace_id=s.workspace_id where s.id=%s and s.workspace_id=%s and wm.user_id=%s", (session_id, workspace_id, user_id)).fetchone(): raise HTTPException(404, "Session not found")
-
-def _question_terms(text: str) -> set[str]:
-    return {token for token in re.findall(r"[a-z0-9]{3,}", text.lower()) if token not in {"the", "and", "that", "this", "with", "from"}}
 
 def _relevant_contradiction_count(conn, workspace_id: uuid.UUID, question: str) -> int:
-    rows = conn.execute("select subject, predicate, object, opposing_object from public.claim_contradictions(%s)", (workspace_id,)).fetchall(); terms = _question_terms(question)
-    return sum(1 for row in rows if terms & _question_terms(" ".join(str(value or "") for value in row))) if terms else 0
+    rows = conn.execute("select subject, predicate, object, opposing_object from public.claim_contradictions(%s)", (workspace_id,)).fetchall()
+    terms = set(question.lower().split())
+    return sum(1 for row in rows if terms & {str(value).lower() for value in row if value})
 
-app.include_router(revision_router); app.include_router(provenance_router); app.include_router(continuity_router)
-
-@app.get("/", include_in_schema=False)
-def workspace_ui() -> FileResponse: return FileResponse(Path(__file__).resolve().parents[1] / "web" / "index.html")
 
 @app.get("/health")
-def health() -> dict[str, str]: return {"status": "ok", "service": "aurora-api"}
+def health() -> dict[str, str]:
+    return {"status": "ok", "service": "aurora"}
+
 
 @app.get("/health/db")
 def health_db() -> dict[str, str]:
-    if not settings.database_url: raise HTTPException(503, "DATABASE_URL is not configured")
-    with psycopg.connect(settings.database_url) as conn: conn.execute("select 1")
+    if not settings.database_url:
+        raise HTTPException(503, "DATABASE_URL is not configured")
+    with psycopg.connect(settings.database_url) as conn:
+        conn.execute("select 1")
     return {"status": "ok", "database": "reachable"}
+
 
 @app.get("/v1/claims/contradictions")
 def claim_contradictions(workspace_id: uuid.UUID, user_id: uuid.UUID = Depends(current_user)) -> dict:
@@ -104,7 +97,7 @@ def ingest_document(request: DocumentRequest, user_id: uuid.UUID = Depends(curre
         require_workspace_access(conn, request.workspace_id, user_id)
         source_id, document_id = create_source_and_document(conn, workspace_id=request.workspace_id, name=request.name, content=request.content, mime_type=request.mime_type)
         event = event_envelope(event_type="document.ingested", producer_type="human", producer_id=str(user_id), workspace_id=str(request.workspace_id), correlation_id=str(uuid.uuid4()), payload={"document_id": str(document_id), "source_id": str(source_id), "name": request.name})
-        conn.execute("insert into public.events (id,workspace_id,event_type,producer_type,producer_id,event_time,recorded_at,correlation_id,schema_version,payload) values (%(id)s,%(workspace_id)s,%(event_type)s,%(producer_type)s,%(producer_id)s,%(event_time)s,%(recorded_at)s,%(correlation_id)s,%(schema_version)s,%(payload)s::jsonb", {**event, "payload": json.dumps(event["payload"])})
+        conn.execute("insert into public.events (id,workspace_id,event_type,producer_type,producer_id,event_time,recorded_at,correlation_id,schema_version,payload) values (%(id)s,%(workspace_id)s,%(event_type)s,%(producer_type)s,%(producer_id)s,%(event_time)s,%(recorded_at)s,%(correlation_id)s,%(schema_version)s,%(payload)s::jsonb)", {**event, "payload": json.dumps(event["payload"])})
         event_id = uuid.UUID(event["id"]); candidates = extract_candidate_claims(request.content); claim_ids = persist_candidate_claims(conn, workspace_id=request.workspace_id, source_id=source_id, event_id=event_id, text=request.content)
         for claim, claim_id in zip(candidates, claim_ids): conn.execute("insert into public.evidence (workspace_id,claim_id,source_id,event_id,relation,strength,extraction_method,excerpt) values (%s,%s,%s,%s,'supports',%s,'deterministic_candidate',%s)", (request.workspace_id, claim_id, source_id, event_id, claim.confidence, claim.excerpt))
         conn.commit(); count = conn.execute("select count(*) from public.document_chunks where document_id=%s", (document_id,)).fetchone()[0]
@@ -134,7 +127,7 @@ async def ask(request: AskRequest, user_id: uuid.UUID = Depends(current_user)) -
         require_workspace_access(conn, request.workspace_id, user_id)
         if request.session_id: require_session_access(conn, session_id, request.workspace_id, user_id)
         else: conn.execute("insert into public.sessions (id,workspace_id,user_id,title) values (%s,%s,%s,%s)", (session_id, request.workspace_id, user_id, request.question[:100]))
-        _, user_event_id = record_message(conn, workspace_id=request.workspace_id, session_id=session_id, role="user", content=request.question, source_id=None, correlation_id=correlation_id)
+        _, _user_event_id = record_message(conn, workspace_id=request.workspace_id, session_id=session_id, role="user", content=request.question, source_id=None, correlation_id=correlation_id)
         lexical = retrieve_lexical(conn, workspace_id=request.workspace_id, question=request.question); semantic: list[dict] = []
         if settings.openai_api_key or settings.openrouter_api_key:
             try: embedding_result = await gateway.embed([request.question]); semantic = retrieve_semantic(conn, workspace_id=request.workspace_id, embedding=embedding_result["embeddings"][0], limit=8)

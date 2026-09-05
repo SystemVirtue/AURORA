@@ -1,99 +1,34 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>AURORA — Transparent Cognitive Workspace</title>
-  <style>
-    body{font:15px system-ui,sans-serif;max-width:1100px;margin:40px auto;padding:0 20px;background:#f7f7f5;color:#202124}
-    textarea,input,select{width:100%;box-sizing:border-box;padding:10px;margin:6px 0 12px;border:1px solid #bbb;border-radius:6px}
-    button{padding:10px 16px;border:0;border-radius:6px;cursor:pointer}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-    .card{background:white;border:1px solid #ddd;border-radius:10px;padding:18px;margin-top:16px}.answer{white-space:pre-wrap;line-height:1.5}
-    pre{white-space:pre-wrap;overflow:auto}.muted{color:#666}.warning{border-left:4px solid #b55;padding-left:12px}.claim{border:1px solid #ddd;padding:10px;margin:8px 0;border-radius:6px}
-    .provenance{font-size:13px}.node{display:inline-block;border:1px solid #ccc;border-radius:6px;padding:8px;margin:3px;background:#fafafa;vertical-align:top;max-width:240px}
-    .quorum{border-left:4px solid #555;padding-left:12px}.contributor{border:1px solid #ddd;border-radius:8px;padding:10px;margin:8px 0}.metric{display:inline-block;margin:4px 8px 4px 0;padding:5px 8px;background:#f0f0f0;border-radius:5px}
-    @media(max-width:700px){.grid{grid-template-columns:1fr}}
-  </style>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AURORA — Transparent Cognitive Workspace</title>
+<style>
+:root{font-family:system-ui,-apple-system,sans-serif;color:#202124;background:#f5f5f2}*{box-sizing:border-box}body{max-width:1180px;margin:0 auto;padding:28px 18px}h1{margin:0}h2{font-size:18px;margin:0 0 12px}p{line-height:1.55}.muted{color:#697078}.warning{border-left:4px solid #b66;padding-left:12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{background:#fff;border:1px solid #ddd;border-radius:12px;padding:18px;margin-top:16px;box-shadow:0 1px 2px #00000008}input,textarea,select{width:100%;padding:10px;margin:6px 0 12px;border:1px solid #bbb;border-radius:7px;font:inherit}button{padding:9px 14px;border:0;border-radius:7px;cursor:pointer;background:#202124;color:#fff}button.secondary{background:#eee;color:#202124}.row{display:flex;gap:8px;flex-wrap:wrap}.answer{white-space:pre-wrap;line-height:1.65}.metric{display:inline-block;padding:5px 8px;margin:4px 6px 4px 0;background:#f0f0ed;border-radius:5px;font-size:12px}.claim,.contributor{border:1px solid #ddd;border-radius:8px;padding:10px;margin:8px 0}.node{display:inline-block;border:1px solid #ccc;border-radius:6px;padding:8px;margin:3px;background:#fafafa;vertical-align:top;max-width:260px}.quorum{border-left:4px solid #555;padding-left:12px}pre{white-space:pre-wrap;overflow:auto;font-size:12px}.status{font-size:12px;margin-top:8px}.ok{color:#176b3a}.err{color:#a33}@media(max-width:760px){.grid{grid-template-columns:1fr}}
+</style>
 </head>
 <body>
-  <h1>AURORA</h1>
-  <p class="muted">Dawn for Transparent AI — a cognitive workspace with inspectable evidence.</p>
-  <p class="warning">Authenticated development interface. Use a Supabase access token; tenant access is enforced server-side.</p>
-  <div class="card">
-    <label>Supabase access token</label><input id="token" type="password" placeholder="eyJ...">
-    <label>Workspace ID</label><input id="workspace" placeholder="UUID">
-  </div>
-  <div class="grid">
-    <div class="card">
-      <label>Model (optional)</label><input id="model" placeholder="e.g. openrouter/...">
-      <label>Reasoning mode</label>
-      <select id="mode"><option value="balanced">Balanced — selective escalation</option><option value="fast">Fast</option><option value="deep">Deep — QUORUM</option><option value="quorum">QUORUM — explicit deliberation</option></select>
-      <label>Question</label><textarea id="question" rows="8" placeholder="Ask AURORA something..."></textarea>
-      <button onclick="ask()">Ask AURORA</button>
-    </div>
-    <div class="card"><h2>Trace</h2><pre id="trace">No reasoning run yet.</pre></div>
-  </div>
-  <div class="card"><h2>Answer</h2><div id="answer" class="answer"></div></div>
-  <div class="card"><h2>QUORUM deliberation</h2><div id="quorum" class="muted">No deliberation was required yet.</div></div>
-  <div class="card"><h2>Evidence</h2><div id="evidence" class="muted">No evidence yet.</div></div>
-  <div class="card">
-    <h2>Claim inspection</h2>
-    <button onclick="contradictions()">Find contradictions</button>
-    <div id="claims" class="muted">No contradiction scan yet.</div>
-  </div>
-  <div class="card"><h2>Provenance graph</h2><div id="provenance" class="provenance muted">Select a claim above to inspect its provenance.</div></div>
-  <script>
-    function headers(){return {'Content-Type':'application/json','Authorization':'Bearer '+document.querySelector('#token').value.trim()};}
-    function pct(value){return value==null?'—':(Number(value)*100).toFixed(1)+'%';}
-    function renderQuorum(q){
-      const el=document.querySelector('#quorum');
-      if(!q){el.innerHTML='<span class="muted">Single-model reasoning. No QUORUM escalation was warranted.</span>';return;}
-      const contributors=q.contributors||[];
-      const failed=q.failed_contributors||[];
-      const disagreement=(q.disagreements||[]).map(escapeHtml).join('<br>')||'None detected by the current comparison heuristic.';
-      el.innerHTML=`<div class="quorum"><p><b>Warrant:</b> ${escapeHtml(q.warrant||'unspecified')}</p>
-        <span class="metric">Agreement: ${pct(q.agreement)}</span><span class="metric">Evidence coverage: ${pct(q.evidence_coverage)}</span><span class="metric">Collective gain: ${Number(q.collective_gain||0).toFixed(4)}</span>
-        <p><b>Independent contributors (${contributors.length})</b></p>
-        ${contributors.map(c=>`<article class="contributor"><b>${escapeHtml(c.model)}</b> <span class="muted">(${escapeHtml(c.provider||'unknown provider')}, ${escapeHtml(c.latency_ms)} ms)</span><p class="answer">${escapeHtml(c.response)}</p><small>Evidence IDs: ${(c.evidence_ids||[]).map(escapeHtml).join(', ')||'none'}</small></article>`).join('')}
-        ${failed.length?`<p><b>Failed contributors</b></p><ul>${failed.map(c=>`<li>${escapeHtml(c.model)} — ${escapeHtml(c.error)}</li>`).join('')}</ul>`:''}
-        <p><b>Disagreements</b><br>${disagreement}</p>
-        <p><b>Synthesis:</b> ${escapeHtml(q.synthesis_model||'unknown')} via ${escapeHtml(q.synthesis_provider||'unknown')} (${escapeHtml(q.synthesis_latency_ms)} ms)</p>
-      </div>`;
-    }
-    async function ask(){
-      const answer=document.querySelector('#answer'), evidence=document.querySelector('#evidence'), trace=document.querySelector('#trace');
-      answer.textContent='Investigating…'; evidence.textContent=''; trace.textContent=''; document.querySelector('#quorum').textContent='Evaluating reasoning warrant…';
-      try{
-        const body={workspace_id:document.querySelector('#workspace').value.trim(),question:document.querySelector('#question').value,model:document.querySelector('#model').value.trim()||null,mode:document.querySelector('#mode').value};
-        const r=await fetch('/v1/ask',{method:'POST',headers:headers(),body:JSON.stringify(body)});
-        const data=await r.json(); if(!r.ok) throw new Error(data.detail||r.statusText);
-        answer.textContent=data.answer;
-        trace.textContent=JSON.stringify(data.trace,null,2)+`\n\nmodel: ${data.model}\nprovider: ${data.provider}`;
-        renderQuorum(data.quorum);
-        evidence.innerHTML=data.evidence.length?data.evidence.map((e,i)=>`<article><b>[${i+1}] ${escapeHtml(e.document)}</b> — chunk ${e.chunk_index}, ${e.retrieval}, score ${Number(e.score).toFixed(3)}<p>${escapeHtml(e.content)}</p><small>Evidence IDs: ${e.evidence_ids.map(escapeHtml).join(', ')}</small></article>`).join('<hr>'):'<span class="muted">No matching evidence. AURORA should treat this as an epistemic gap.</span>';
-      }catch(e){answer.textContent='Error: '+e.message; document.querySelector('#quorum').textContent='Reasoning failed before deliberation could be displayed.';}
-    }
-    async function contradictions(){
-      const el=document.querySelector('#claims'); el.textContent='Scanning…';
-      try{
-        const ws=encodeURIComponent(document.querySelector('#workspace').value.trim());
-        const r=await fetch('/v1/claims/contradictions?workspace_id='+ws,{headers:headers()}); const data=await r.json();
-        if(!r.ok) throw new Error(data.detail||r.statusText);
-        el.innerHTML=data.contradictions.length?data.contradictions.map(c=>`<div class="claim"><b>${escapeHtml(c.subject)}</b> — ${escapeHtml(c.predicate)}<br>${escapeHtml(c.object)} <b>vs</b> ${escapeHtml(c.opposing_object)}<br><small>${escapeHtml(c.claim_id)} ↔ ${escapeHtml(c.opposing_claim_id)}</small><br><button onclick="inspectProvenance('${escapeHtml(c.claim_id)}')">Inspect provenance</button></div>`).join(''):'No competing non-rejected assertions detected.';
-      }catch(e){el.textContent='Error: '+e.message;}
-    }
-    async function inspectProvenance(claimId){
-      const el=document.querySelector('#provenance'); el.textContent='Loading provenance…';
-      try{
-        const ws=encodeURIComponent(document.querySelector('#workspace').value.trim());
-        const r=await fetch('/v1/provenance/claims/'+encodeURIComponent(claimId)+'?workspace_id='+ws,{headers:headers()}); const data=await r.json();
-        if(!r.ok) throw new Error(data.detail||r.statusText);
-        const nodes=data.nodes.map(n=>`<span class="node"><b>${escapeHtml(n.type)}</b><br>${escapeHtml(n.label||n.id)}${n.provider?`<br><small>${escapeHtml(n.provider)}</small>`:''}</span>`).join('');
-        const edges=data.edges.map(e=>`<li>${escapeHtml(e.source)} → <b>${escapeHtml(e.relation)}</b> → ${escapeHtml(e.target)}</li>`).join('');
-        el.innerHTML=`<p><b>Claim:</b> ${escapeHtml(data.claim_id)}</p><div>${nodes}</div><h3>Relationships</h3><ul>${edges||'<li>No relationships returned.</li>'}</ul>`;
-      }catch(e){el.textContent='Error: '+e.message;}
-    }
-    function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-  </script>
-</body>
-</html>
+<header><h1>AURORA</h1><p class="muted">Dawn for Transparent AI — a persistent, inspectable cognitive workspace.</p><p class="warning">MVP development client. The API enforces authentication and workspace tenancy. Never enter provider API keys here.</p></header>
+<section class="card"><h2>Connection</h2><div class="grid"><div><label>Supabase access token</label><input id="token" type="password" autocomplete="off" placeholder="JWT access token"></div><div><label>Workspace UUID</label><input id="workspace" placeholder="00000000-0000-0000-0000-000000000000"></div></div><div class="row"><button onclick="health()">Test API</button><button class="secondary" onclick="saveConfig()">Save connection locally</button><span id="connection" class="status muted"></span></div></section>
+<section class="grid"><div class="card"><h2>1. Investigate — ingest evidence</h2><label>Document name</label><input id="docname" placeholder="source.txt"><label>Document content</label><textarea id="doccontent" rows="7" placeholder="Paste source material here…"></textarea><button onclick="ingest()">Ingest document</button><div id="ingestStatus" class="status muted"></div></div><div class="card"><h2>2. Ask — reason over the workspace</h2><label>Model (optional)</label><input id="model" placeholder="openrouter/..."><label>Reasoning mode</label><select id="mode"><option value="balanced">Balanced — selective escalation</option><option value="fast">Fast</option><option value="deep">Deep — QUORUM</option><option value="quorum">QUORUM — explicit deliberation</option></select><label>Question</label><textarea id="question" rows="7" placeholder="What does the evidence show?"></textarea><button onclick="ask()">Ask AURORA</button></div></section>
+<section class="card"><h2>Answer</h2><div id="answer" class="answer muted">No reasoning run yet.</div></section>
+<section class="grid"><div class="card"><h2>Reasoning trace</h2><pre id="trace">No trace yet.</pre></div><div class="card"><h2>Epistemic status</h2><div id="epistemic" class="muted">AURORA will show evidence gaps or contradiction warrants here.</div></div></section>
+<section class="card"><h2>QUORUM deliberation</h2><div id="quorum" class="muted">No deliberation yet.</div></section>
+<section class="card"><h2>Retrieved evidence</h2><div id="evidence" class="muted">No evidence yet.</div></section>
+<section class="card"><h2>Claim inspection</h2><div class="row"><button onclick="contradictions()">Find contradictions</button></div><div id="claims" class="muted">No contradiction scan yet.</div></section>
+<section class="card"><h2>Provenance</h2><div id="provenance" class="muted">Select a claim to inspect source → evidence → reasoning relationships.</div></section>
+<section class="card"><h2>Continuity</h2><p class="muted">Export the authoritative cognitive state as a deterministic, checksummed bundle. Restore remains an authenticated/development operation.</p><div class="row"><button onclick="exportState()">Export workspace</button><button class="secondary" onclick="document.querySelector('#restoreFile').click()">Restore bundle</button><input id="restoreFile" type="file" accept="application/json,.json" hidden onchange="restoreState(this)"></div><div id="continuity" class="status muted"></div></section>
+<script>
+const $=id=>document.getElementById(id);function headers(){return {'Content-Type':'application/json','Authorization':'Bearer '+$('token').value.trim()}}function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}function pct(v){return v==null?'—':(Number(v)*100).toFixed(1)+'%'}function ws(){return $('workspace').value.trim()}
+function saveConfig(){localStorage.setItem('aurora.connection.v1',JSON.stringify({workspaceId:ws(),token:$('token').value.trim()}));$('connection').textContent='Connection saved locally.'}function loadConfig(){try{const x=JSON.parse(localStorage.getItem('aurora.connection.v1')||'{}');if(x.workspaceId)$('workspace').value=x.workspaceId;if(x.token)$('token').value=x.token}catch{}}loadConfig();
+async function call(path,init={}){const r=await fetch(path,{...init,headers:{...headers(),...(init.headers||{})}});let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.detail||r.statusText);return d}
+async function health(){try{const d=await fetch('/health').then(r=>r.json());$('connection').textContent=d.status+' · '+d.service;$('connection').className='status ok'}catch(e){$('connection').textContent=e.message;$('connection').className='status err'}}
+async function ingest(){if(!ws()||!$('docname').value.trim()||!$('doccontent').value.trim())return $('ingestStatus').textContent='Workspace, name and content are required.';$('ingestStatus').textContent='Ingesting…';try{const d=await call('/v1/documents',{method:'POST',body:JSON.stringify({workspace_id:ws(),name:$('docname').value.trim(),content:$('doccontent').value,mime_type:'text/plain'})});$('ingestStatus').textContent=`Ingested ${d.chunks} chunks and ${d.candidate_claims} candidate claims (unverified).`;$('ingestStatus').className='status ok'}catch(e){$('ingestStatus').textContent=e.message;$('ingestStatus').className='status err'}}
+function renderQuorum(q){if(!q){$('quorum').innerHTML='<span class="muted">Single-model reasoning. No QUORUM escalation was warranted.</span>';return}const cs=q.contributors||[];const fs=q.failed_contributors||[];$('quorum').innerHTML=`<div class="quorum"><p><b>Warrant:</b> ${esc(q.warrant)}</p><span class="metric">Agreement ${pct(q.agreement)}</span><span class="metric">Evidence coverage ${pct(q.evidence_coverage)}</span><span class="metric">Collective gain ${Number(q.collective_gain||0).toFixed(4)}</span><p><b>Contributors (${cs.length})</b></p>${cs.map(c=>`<article class="contributor"><b>${esc(c.model)}</b> <span class="muted">${esc(c.provider)} · ${esc(c.latency_ms)} ms</span><p class="answer">${esc(c.response)}</p><small>Evidence: ${(c.evidence_ids||[]).map(esc).join(', ')||'none'}</small></article>`).join('')}${fs.length?`<p><b>Failed contributors</b></p><ul>${fs.map(c=>`<li>${esc(c.model)} — ${esc(c.error)}</li>`).join('')}</ul>`:''}<p><b>Disagreements</b><br>${(q.disagreements||[]).map(esc).join('<br>')||'None detected by the current comparison heuristic.'}</p><p><b>Synthesis:</b> ${esc(q.synthesis_model)} via ${esc(q.synthesis_provider)} · ${esc(q.synthesis_latency_ms)} ms</p></div>`}
+async function ask(){if(!ws()||!$('question').value.trim())return $('answer').textContent='Workspace and question are required.';$('answer').textContent='Investigating…';$('epistemic').textContent='Evaluating evidence and warrant…';try{const d=await call('/v1/ask',{method:'POST',body:JSON.stringify({workspace_id:ws(),question:$('question').value.trim(),model:$('model').value.trim()||null,mode:$('mode').value})});$('answer').textContent=d.answer;$('trace').textContent=JSON.stringify(d.trace,null,2)+`\n\nmodel: ${d.model}\nprovider: ${d.provider}`;renderQuorum(d.quorum);$('epistemic').innerHTML=d.warrant?`<b>Warrant:</b> ${esc(d.warrant)} — AURORA deliberately escalated or recorded an epistemic condition.`:'Evidence-backed path: no escalation warrant was required.';$('evidence').innerHTML=d.evidence?.length?d.evidence.map((e,i)=>`<article><b>[${i+1}] ${esc(e.document)}</b> · chunk ${esc(e.chunk_index)} · ${esc(e.retrieval)} · score ${Number(e.score||0).toFixed(3)}<p>${esc(e.content)}</p><small>Evidence ID: ${esc(e.evidence_id||'none')}</small></article><hr>`).join(''):'No matching evidence. AURORA should treat this as an epistemic gap.'}catch(e){$('answer').textContent='Error: '+e.message;$('epistemic').textContent='Reasoning failed.'}}
+async function contradictions(){ $('claims').textContent='Scanning…';try{const d=await call('/v1/claims/contradictions?workspace_id='+encodeURIComponent(ws()),{method:'GET'});$('claims').innerHTML=d.contradictions?.length?d.contradictions.map(c=>`<div class="claim"><b>${esc(c.subject)}</b> — ${esc(c.predicate)}<br>${esc(c.object)} <b>vs</b> ${esc(c.opposing_object)}<br><small>${esc(c.claim_id)} ↔ ${esc(c.opposing_claim_id)}</small><br><button onclick="inspect('${esc(c.claim_id)}')">Inspect provenance</button></div>`).join(''):'No competing non-rejected assertions detected.'}catch(e){$('claims').textContent='Error: '+e.message}}
+async function inspect(id){$('provenance').textContent='Loading provenance…';try{const d=await call('/v1/provenance/claims/'+encodeURIComponent(id)+'?workspace_id='+encodeURIComponent(ws()),{method:'GET'});$('provenance').innerHTML=`<p><b>Claim:</b> ${esc(d.claim_id)}</p><div>${(d.nodes||[]).map(n=>`<span class="node"><b>${esc(n.type)}</b><br>${esc(n.label||n.id)}${n.provider?`<br><small>${esc(n.provider)}</small>`:''}</span>`).join('')}</div><h3>Relationships</h3><ul>${(d.edges||[]).map(e=>`<li>${esc(e.source)} → <b>${esc(e.relation)}</b> → ${esc(e.target)}</li>`).join('')||'<li>None</li>'}</ul>`}catch(e){$('provenance').textContent='Error: '+e.message}}
+async function exportState(){ $('continuity').textContent='Exporting…';try{const d=await call('/v1/continuity/export?workspace_id='+encodeURIComponent(ws()),{method:'GET'});const blob=new Blob([JSON.stringify(d,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='aurora-export-'+ws().slice(0,8)+'.json';a.click();URL.revokeObjectURL(a.href);$('continuity').textContent='Export generated. Derived embeddings remain rebuildable and auth identities are not exported.'}catch(e){$('continuity').textContent='Error: '+e.message}}
+async function restoreState(input){const file=input.files?.[0];if(!file)return;try{const bundle=JSON.parse(await file.text());const d=await call('/v1/continuity/restore',{method:'POST',body:JSON.stringify({workspace_id:ws(),user_id_map:{},bundle,dry_run:true})});$('continuity').textContent='Dry-run restore validated: '+JSON.stringify(d)}catch(e){$('continuity').textContent='Restore dry-run: '+e.message+' (an explicit user_id_map may be required for a real restore)'}input.value=''}
+</script>
+</body></html>

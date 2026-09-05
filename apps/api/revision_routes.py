@@ -19,10 +19,12 @@ from aurora.cognition import (
 from aurora.core import event_envelope, settings
 from aurora.gateway import ReasoningError, ReasoningGateway
 from aurora.quorum import Contribution, compare_contributions, should_deliberate, synthesis_prompt
+from apps.api.action_routes import router as action_router
 
 router = APIRouter(prefix="/v1", tags=["cognition"])
 bearer = HTTPBearer(auto_error=False)
 bearer_dependency = Depends(bearer)
+router.include_router(action_router)
 
 
 class ClaimReviewRequest(BaseModel):

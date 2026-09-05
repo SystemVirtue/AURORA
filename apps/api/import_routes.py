@@ -15,6 +15,7 @@ from aurora.importers import (
     import_gemini_export,
     import_generic_conversation,
 )
+from apps.api.workspace_routes import router as workspace_router
 
 router = APIRouter(tags=["imports"])
 bearer = HTTPBearer(auto_error=False)
@@ -89,3 +90,6 @@ def import_conversation(
         "model_text_is_historical_context": True,
         "claims_promoted_to_fact": False,
     }
+
+
+router.include_router(workspace_router)

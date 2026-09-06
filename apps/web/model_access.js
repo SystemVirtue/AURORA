@@ -109,12 +109,14 @@
     const context = evidence.length ? evidence.map((e, i) => `[Evidence ${i + 1} | ${e.evidence_id}] ${e.content}`).join('\n\n') : '(No matching workspace evidence was retrieved.)';
     const prompt = `Evidence/context:\n${context}\n\nQuestion:\n${question}`;
     const mode = document.getElementById('mode').value;
-    const contributors = [];
-    for (const model of mode === 'quorum' || mode === 'deep' ? models.slice(0, 3) : models.slice(0, 1)) {
-      contributors.push(await puterCall(model, prompt));
-    }
+    const quorumMode = mode === 'quorum' || mode === 'deep';
+    const contributorModels = (quorumMode ? models.slice(0, 3) : models.slice(0, 1));
+    // Independent contributors have no dependency on one another, so execute them
+    // concurrently. This materially reduces QUORUM wall-clock latency without
+    // changing the deliberation semantics or persistence contract.
+    const contributors = await Promise.all(contributorModels.map(model => puterCall(model, prompt)));
     let synthesis = null;
-    if ((mode === 'quorum' || mode === 'deep') && contributors.length > 0) {
+    if (quorumMode && contributors.length > 0) {
       const deliberation = contributors.map((c, i) => `CONTRIBUTOR ${i + 1} — ${c.model}\n${c.response}`).join('\n\n');
       const synthesisModel = models[0];
       synthesis = await puterCall(synthesisModel, `You are the AURORA synthesis model. Preserve material disagreement, distinguish evidence from model assertions, identify uncertainty, and answer the original question.\n\nOriginal question:\n${question}\n\nIndependent contributions:\n${deliberation}`);

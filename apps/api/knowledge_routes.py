@@ -42,7 +42,7 @@ def search_knowledge(
     q: str = Query(""),
     kind: str = Query("all"),
     limit: int = Query(50, ge=1, le=100),
-    user=Depends(_user),
+    user=Depends(_user),  # noqa: B008
 ):
     if kind not in {"all", "claims", "documents"}:
         raise HTTPException(status_code=400, detail="kind must be all, claims, or documents")
@@ -60,12 +60,7 @@ def search_knowledge(
                    order by updated_at desc nulls last, id desc limit %s""",
                 (workspace_id, term, term, limit),
             ).fetchall()
-            out.extend(
-                KnowledgeItem(
-                    id=r[0], type="claim", title=f"{r[1]} {r[2]} {r[3]}",
-                    status=r[4], confidence=float(r[5]) if r[5] is not None else None, excerpt=r[6]
-                ) for r in rows
-            )
+            out.extend(KnowledgeItem(id=r[0], type="claim", title=f"{r[1]} {r[2]} {r[3]}", status=r[4], confidence=float(r[5]) if r[5] is not None else None, excerpt=r[6]) for r in rows)
         if kind in ("all", "documents") and len(out) < limit:
             rows = conn.execute(
                 """select id::text, title from documents where workspace_id=%s

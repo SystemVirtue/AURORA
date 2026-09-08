@@ -4,7 +4,7 @@
 
 ## Scope delivered
 
-The canonical `apps/web` client now has a thin UX layer over the existing working API client rather than a second application or framework.
+The canonical `apps/web` client has a thin UX layer over the existing working API client rather than a second application or framework.
 
 ### UX-MVP A — Application shell
 
@@ -17,35 +17,27 @@ The canonical `apps/web` client now has a thin UX layer over the existing workin
 
 ### UX-MVP B — Home
 
-Home is a summary layer rather than a second data store. It reads the already-rendered cognitive outputs and exposes:
-
-- latest reasoning result;
-- current epistemic status;
-- retrieved evidence count;
-- contradiction status;
-- recommended next action.
-
-No synthetic cognitive facts are created by the UX layer.
+Home is a summary layer rather than a second data store. It reads already-rendered cognitive outputs and exposes latest reasoning, epistemic status, retrieved evidence count, contradiction state and next action.
 
 ### UX-MVP C — Think
 
-The existing functional reasoning controls are now grouped into a deliberate inspection sequence:
+Existing functional reasoning controls are grouped into a deliberate inspection sequence:
 
 **question / investigation → answer → epistemic status + trace → QUORUM → retrieved evidence**
 
-The existing model-access layer remains intact, including explicit provider/model selection and the OpenRouter-free / Puter pathways.
+Raw reasoning trace and deeper deliberation details are progressively disclosed rather than occupying the primary surface.
 
-### Knowledge / Provenance / Action / Data IO
+### UX-MVP D/E — Knowledge and Provenance foundation
 
-The existing working surfaces are now separated into navigable cognitive experiences:
+The working claims/contradiction/belief-revision surface is now a dedicated Knowledge experience, while its existing claim provenance inspector is exposed through the Provenance experience. The UX explicitly preserves the distinction between an evidence-backed claim, an unresolved/contested claim and a model assertion.
 
-- **Knowledge:** claims, contradiction detection and belief revision;
-- **Provenance:** the existing claim provenance inspector, preserving claim → evidence → source/event → reasoning relationships;
+This pass does **not** invent a semantic graph or pretend that a general knowledge browser exists where the backend does not yet expose one.
+
+### Action / Data IO / System
+
 - **Action:** goals, tasks and decisions;
 - **Data IO:** conversation import and continuity export/restore validation;
-- **System:** authentication and workspace controls.
-
-This is an information-architecture refactor, not a backend rewrite.
+- **System:** authentication, workspace and model-access controls.
 
 ## Design principles enforced
 
@@ -58,19 +50,27 @@ This is an information-architecture refactor, not a backend rewrite.
 7. AURORA is presented as a cognitive instrument/workspace rather than generic AI SaaS.
 8. Responsive behaviour is included without introducing a frontend framework.
 
-## Validation added
+## Validation
 
-The canonical CI web job now checks `apps/web/ux.js` with Node syntax validation and verifies that `index.html` references the UX layer.
+CI checks the web JavaScript with Node syntax validation and verifies that the UX layer is mounted by `index.html`.
 
-Browser-level interaction testing is **not yet claimed**. The next validation gate is a real browser smoke test against the deployed canonical API/Supabase environment.
+Browser-level interaction testing is not yet claimed. A real browser smoke test against the deployed canonical API/Supabase environment remains an MVP gate.
 
-## Files
+## Next engineering increment
 
-- `apps/web/index.html` — mounts the UX layer;
-- `apps/web/ux.js` — shell, navigation, Home summary and view composition;
-- `apps/web/app.js` — existing cognitive API client remains authoritative for current operations;
-- `apps/web/model_access.js` — existing explicit model/provider access layer remains authoritative for model execution UI.
+The next substantive UX increment is a **real Knowledge API/explorer** backed by the existing claims/evidence/document/chunk substrate, followed by a richer Provenance inspector and consolidated Data IO centre. These should expose actual backend objects rather than duplicating or fabricating state in the browser.
+
+After those surfaces, add browser smoke/E2E validation and validate the complete user path:
+
+**workspace → ingest → ask → epistemic status → evidence → QUORUM → claim → provenance → review → action → return → export**
 
 ## Deliberately deferred
 
-This pass does not attempt to solve visual provenance graphs, global semantic search, a complete source/document explorer, advanced responsive layouts, accessibility certification, browser E2E automation, or a Figma-to-code pipeline. Those are subsequent increments after the information architecture has been exercised against real use.
+- global semantic search;
+- full source/document explorer;
+- visual provenance graph;
+- advanced responsive layouts;
+- accessibility certification;
+- browser E2E automation;
+- Figma-to-code pipeline;
+- platform-scale orchestration.

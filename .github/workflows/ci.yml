@@ -28,9 +28,13 @@ jobs:
       - run: node --check apps/web/app.js
       - run: node --check apps/web/model_access.js
       - run: node --check apps/web/ux.js
+      - run: node --check apps/web/provenance.js
+      - run: node --check apps/web/data_io.js
       - run: test -s apps/web/index.html
       - run: grep -q 'src="/app.js"' apps/web/index.html
       - run: grep -q 'src="/model_access.js"' apps/web/index.html
+      - run: grep -q 'src="/provenance.js"' apps/web/index.html
+      - run: grep -q 'src="/data_io.js"' apps/web/index.html
       - run: grep -q 'src="/ux.js"' apps/web/index.html
       - run: grep -q 'id="token"' apps/web/index.html
       - run: grep -q 'id="refreshToken"' apps/web/index.html

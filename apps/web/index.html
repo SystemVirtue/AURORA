@@ -21,6 +21,8 @@
 <section class="card"><h2>Continuity / machine reincarnation</h2><p class="muted">Export authoritative cognitive state as a deterministic, checksummed bundle. Restore is currently an authenticated development operation and this client performs a dry-run.</p><div class="row"><button onclick="exportState()">Export workspace</button><button class="secondary" onclick="document.querySelector('#restoreBundle').click()">Validate restore bundle</button><input id="restoreBundle" type="file" accept="application/json,.json" hidden onchange="restoreState(this)"></div><div id="continuity" class="status muted"></div></section>
 <script src="/app.js"></script>
 <script src="/model_access.js"></script>
+<script src="/provenance.js"></script>
+<script src="/data_io.js"></script>
 <script src="/ux.js"></script>
 <script>
 (() => {

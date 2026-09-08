@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import APIRouter, Depends
+from fastapi.security import HTTPBearer
 
 from apps.api.action_routes import router as action_router
+from apps.api.knowledge_routes import router as knowledge_router
 from apps.api.model_routes import router as model_router
 from apps.api.puter_routes import router as puter_router
-from apps.api.knowledge_routes import router as knowledge_router
 
 router = APIRouter(prefix="/v1", tags=["cognition"])
 bearer = HTTPBearer(auto_error=False)

@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from apps.api.continuity_routes import router as continuity_router
+from apps.api.model_routes import router as model_router
 from apps.api.provenance_routes import router as provenance_router
 from apps.api.revision_routes import router as revision_router
 from aurora.claims import extract_candidate_claims, persist_candidate_claims
@@ -69,7 +70,7 @@ def _relevant_contradiction_count(conn, workspace_id: uuid.UUID, question: str) 
     rows = conn.execute("select subject, predicate, object, opposing_object from public.claim_contradictions(%s)", (workspace_id,)).fetchall(); terms = _question_terms(question)
     return sum(1 for row in rows if terms & _question_terms(" ".join(str(value or "") for value in row))) if terms else 0
 
-app.include_router(revision_router); app.include_router(provenance_router); app.include_router(continuity_router)
+app.include_router(revision_router); app.include_router(provenance_router); app.include_router(continuity_router); app.include_router(model_router)
 
 @app.get("/", include_in_schema=False)
 def workspace_ui() -> FileResponse: return FileResponse(Path(__file__).resolve().parents[1] / "web" / "index.html")

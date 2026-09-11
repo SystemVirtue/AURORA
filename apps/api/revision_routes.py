@@ -1,3 +1,4 @@
+# ruff: noqa: B008
 from __future__ import annotations
 
 import uuid
@@ -49,22 +50,29 @@ def review_claim(
             if not member:
                 raise HTTPException(403, "User is not a member of this workspace")
             claim = conn.execute(
-                "select 1 from public.claims where id=%s and workspace_id=%s",
+                "select id, status, confidence from public.claims where id=%s and workspace_id=%s",
                 (claim_id, request.workspace_id),
             ).fetchone()
             if not claim:
                 raise HTTPException(404, "Claim not found")
-            belief_id = conn.execute(
-                "select public.revise_claim(%s, %s, %s, %s::numeric, %s)",
-                (claim_id, request.status, user_id, request.confidence, request.rationale),
-            ).fetchone()[0]
+            conn.execute(
+                "update public.claims set status=%s, confidence=coalesce(%s,confidence), updated_at=now() where id=%s and workspace_id=%s",
+                (request.status, request.confidence, claim_id, request.workspace_id),
+            )
+            event_id = uuid.uuid4()
+            conn.execute(
+                "insert into public.events (id,workspace_id,event_type,producer_type,producer_id,event_time,recorded_at,aggregate_type,aggregate_id,schema_version,payload) values (%s,%s,'claim.reviewed','human',%s,now(),now(),'claim',%s,1,%s::jsonb)",
+                (event_id, request.workspace_id, user_id, claim_id, __import__('json').dumps({"from_status": claim[1], "to_status": request.status, "confidence": request.confidence, "rationale": request.rationale})),
+            )
             conn.commit()
+    except HTTPException:
+        raise
     except psycopg.Error as exc:
-        raise HTTPException(500, "Claim review failed") from exc
-    return {"claim_id": str(claim_id), "status": request.status, "belief_id": str(belief_id) if belief_id else None}
+        raise HTTPException(500, "Unable to review claim") from exc
+    return {"claim_id": str(claim_id), "status": request.status, "confidence": str(request.confidence) if request.confidence is not None else None}
 
 
 router.include_router(action_router)
+router.include_router(knowledge_router)
 router.include_router(model_router)
 router.include_router(puter_router)
-router.include_router(knowledge_router)

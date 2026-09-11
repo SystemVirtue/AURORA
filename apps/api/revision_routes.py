@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 
 from apps.api.action_routes import router as action_router
 from apps.api.knowledge_routes import router as knowledge_router
-from apps.api.model_routes import router as model_router
 from apps.api.puter_routes import router as puter_router
 from aurora.core import settings
 
@@ -66,6 +65,5 @@ def review_claim(
 
 
 router.include_router(action_router)
-router.include_router(model_router)
 router.include_router(puter_router)
 router.include_router(knowledge_router)

@@ -26,6 +26,14 @@
 <script src="/ux.js"></script>
 <script>
 (() => {
+  const TEST_DEFAULTS = {
+    supabaseUrl: 'https://kvgdpugqgtdxpxgyrvlz.supabase.co',
+    publishableKey: 'sb_publishable_Mua9NoPXf-UKUABdpmUcRg_c7XJFStf',
+    email: 'test@aurora.app',
+    password: 'test',
+    workspace: '22222222-2222-4222-8222-222222222222',
+    workspaceName: 'test_workspace'
+  };
   async function refreshGoalChoices() {
     if (typeof workspace !== 'function' || typeof api !== 'function') return;
     const id = workspace();
@@ -44,11 +52,30 @@
     await refreshGoalChoices();
   };
   document.addEventListener('DOMContentLoaded', async () => {
-    if (typeof loadLocal === 'function') loadLocal();
-    if (token() && typeof loadWorkspaces === 'function') {
-      await loadWorkspaces();
-      if (typeof loadWorkspaceState === 'function') await loadWorkspaceState();
+    // MVP test account is intentionally pre-filled, but the browser remains signed out.
+    $('supabaseUrl').value = TEST_DEFAULTS.supabaseUrl;
+    $('publishableKey').value = TEST_DEFAULTS.publishableKey;
+    $('email').value = TEST_DEFAULTS.email;
+    $('password').value = TEST_DEFAULTS.password;
+    $('workspace').value = TEST_DEFAULTS.workspace;
+    $('workspaceName').value = TEST_DEFAULTS.workspaceName;
+    $('token').value = '';
+    $('refreshToken').value = '';
+    localStorage.removeItem('aurora.session_id');
+    if (typeof loadLocal === 'function') {
+      // Load only non-auth configuration; test defaults above must win on every fresh load.
+      try {
+        const x = JSON.parse(localStorage.getItem('aurora.config.v2') || '{}');
+        if (x.supabaseUrl) $('supabaseUrl').value = x.supabaseUrl;
+        if (x.publishableKey) $('publishableKey').value = x.publishableKey;
+        if (x.workspaceId) $('workspace').value = x.workspaceId;
+      } catch {}
     }
+    $('email').value = TEST_DEFAULTS.email;
+    $('password').value = TEST_DEFAULTS.password;
+    if (!workspace()) $('workspace').value = TEST_DEFAULTS.workspace;
+    $('workspaceName').value = TEST_DEFAULTS.workspaceName;
+    setStatus('authStatus', 'Signed out. Test account is pre-populated — press Sign in to enter test_workspace.');
   });
 })();
 </script>

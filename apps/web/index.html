@@ -4,10 +4,17 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AURORA — Transparent Cognitive Workspace</title>
 <style>
-:root{font-family:system-ui,-apple-system,sans-serif;color:#202124;background:#f5f5f2}*{box-sizing:border-box}body{max-width:1220px;margin:0 auto;padding:24px 16px}h1{margin:0}h2{font-size:18px;margin:0 0 12px}h3{font-size:15px}p{line-height:1.5}.muted{color:#697078}.warning{border-left:4px solid #b66;padding-left:12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fff;border:1px solid #ddd;border-radius:12px;padding:16px;margin-top:14px;box-shadow:0 1px 2px #00000008}input,textarea,select{width:100%;padding:9px;margin:5px 0 10px;border:1px solid #bbb;border-radius:7px;font:inherit}button{padding:9px 13px;border:0;border-radius:7px;cursor:pointer;background:#202124;color:#fff}button.secondary{background:#eee;color:#202124}.row{display:flex;gap:7px;flex-wrap:wrap;align-items:center}.row>*{flex:0 1 auto}.status{font-size:12px;margin-top:7px}.ok{color:#176b3a}.err{color:#a33}.answer{white-space:pre-wrap;line-height:1.65}.metric,.badge{display:inline-block;padding:4px 7px;margin:3px 5px 3px 0;background:#f0f0ed;border-radius:5px;font-size:11px}.item,.claim,.contributor{border:1px solid #ddd;border-radius:8px;padding:10px;margin:7px 0}.item button{margin-top:6px}.node{display:inline-block;border:1px solid #ccc;border-radius:6px;padding:7px;margin:3px;background:#fafafa;vertical-align:top;max-width:260px}.quorum{border-left:4px solid #555;padding-left:12px}pre{white-space:pre-wrap;overflow:auto;font-size:12px;background:#fafafa;padding:8px;border-radius:6px}.danger{border-left:4px solid #a33;padding-left:10px}@media(max-width:760px){.grid{grid-template-columns:1fr}}
+:root{font-family:system-ui,-apple-system,sans-serif;color:#202124;background:#f5f5f2}*{box-sizing:border-box}body{max-width:1220px;margin:0 auto;padding:24px 16px}h1{margin:0}h2{font-size:18px;margin:0 0 12px}h3{font-size:15px}p{line-height:1.5}.muted{color:#697078}.warning{border-left:4px solid #b66;padding-left:12px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fff;border:1px solid #ddd;border-radius:12px;padding:16px;margin-top:14px;box-shadow:0 1px 2px #00000008}input,textarea,select{width:100%;padding:9px;margin:5px 0 10px;border:1px solid #bbb;border-radius:7px;font:inherit}button{padding:9px 13px;border:0;border-radius:7px;cursor:pointer;background:#202124;color:#fff}button.secondary{background:#eee;color:#202124}.row{display:flex;gap:7px;flex-wrap:wrap;align-items:center}.row>*{flex:0 1 auto}.status{font-size:12px;margin-top:7px}.ok{color:#176b3a}.err{color:#a33}.answer{white-space:pre-wrap;line-height:1.65}.metric,.badge{display:inline-block;padding:4px 7px;margin:3px 5px 3px 0;background:#f0f0ed;border-radius:5px;font-size:11px}.item,.claim,.contributor{border:1px solid #ddd;border-radius:8px;padding:10px;margin:7px 0}.item button{margin-top:6px}.node{display:inline-block;border:1px solid #ccc;border-radius:6px;padding:7px;margin:3px;background:#fafafa;vertical-align:top;max-width:260px}.quorum{border-left:4px solid #555;padding-left:12px}pre{white-space:pre-wrap;overflow:auto;font-size:12px;background:#fafafa;padding:8px;border-radius:6px}.danger{border-left:4px solid #a33;padding-left:10px}
+.help-launcher{position:fixed;right:18px;bottom:18px;z-index:9998;width:46px;height:46px;border-radius:50%;font-size:22px;font-weight:700;box-shadow:0 3px 12px #0003;display:flex;align-items:center;justify-content:center}.help-window{position:fixed;z-index:9999;right:28px;bottom:76px;width:min(760px,calc(100vw - 32px));height:min(720px,calc(100vh - 110px));min-width:320px;min-height:240px;background:#fff;border:1px solid #999;border-radius:12px;box-shadow:0 12px 40px #0004;display:none;resize:both;overflow:hidden}.help-window.open{display:flex;flex-direction:column}.help-titlebar{height:46px;flex:0 0 46px;background:#202124;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 10px;cursor:move;user-select:none}.help-titlebar strong{font-size:14px}.help-titlebar .help-actions{display:flex;gap:6px}.help-titlebar button{background:#444;padding:5px 9px}.help-content{overflow:auto;padding:18px;line-height:1.55;font-size:13px}.help-content h1{font-size:24px;margin:0 0 12px}.help-content h2{font-size:18px;margin-top:24px}.help-content h3{font-size:15px;margin-top:18px}.help-content code{background:#f1f1ee;padding:2px 4px;border-radius:4px}.help-content pre{font-size:11px}.help-note{background:#f5f5f2;border-left:4px solid #555;padding:10px 12px;margin:12px 0}
+@media(max-width:760px){.grid{grid-template-columns:1fr}.help-window{right:8px;bottom:70px;width:calc(100vw - 16px);height:calc(100vh - 90px)}}
 </style>
 </head>
 <body>
+<button id="helpLauncher" class="help-launcher" aria-label="Open AURORA help" title="AURORA Guide">?</button>
+<div id="helpWindow" class="help-window" role="dialog" aria-label="AURORA full guide" aria-hidden="true">
+  <div id="helpTitlebar" class="help-titlebar"><strong>AURORA — Full User & Operations Guide</strong><div class="help-actions"><button id="helpRefresh" type="button" title="Reload guide">↻</button><button id="helpClose" type="button" title="Close">×</button></div></div>
+  <div id="helpContent" class="help-content"><p>Loading the current AURORA guide…</p></div>
+</div>
 <header><h1>AURORA</h1><p class="muted">Dawn for Transparent AI — a persistent, inspectable cognitive workspace.</p><p class="warning">MVP workspace client. Authentication uses Supabase; provider API keys never belong in the browser.</p></header>
 <section class="card"><h2>Identity & workspace</h2><div class="grid"><div><label>Supabase project URL</label><input id="supabaseUrl" placeholder="https://your-project.supabase.co"><label>Supabase publishable key</label><input id="publishableKey" type="password" autocomplete="off"><label>Email</label><input id="email" type="email" autocomplete="username"><label>Password</label><input id="password" type="password" autocomplete="current-password"><input id="token" type="hidden"><input id="refreshToken" type="hidden"><div class="row"><button onclick="signIn()">Sign in</button><button class="secondary" onclick="refreshSession()">Refresh session</button><button class="secondary" onclick="signOut()">Sign out</button></div><div id="authStatus" class="status muted"></div></div><div><label>Workspace</label><select id="workspaceList" onchange="chooseWorkspace()"><option value="">Sign in to load workspaces</option></select><input id="workspace" placeholder="Workspace UUID"><div class="row"><input id="workspaceName" placeholder="New workspace name"><button onclick="createWorkspace()">Create workspace</button></div><div id="workspaceStatus" class="status muted"></div><div class="row"><button onclick="loadWorkspaces()">Reload workspaces</button><button class="secondary" onclick="saveLocal()">Save locally</button><button class="secondary" onclick="health()">Test API</button><span id="connection" class="status muted"></span></div></div></div></section>
 <section class="grid"><div class="card"><h2>1. Investigate — ingest evidence</h2><label>Document name</label><input id="docname" placeholder="source.txt"><label>Document content</label><textarea id="doccontent" rows="7" placeholder="Paste source material here…"></textarea><button onclick="ingest()">Ingest document</button><div id="ingestStatus" class="status muted"></div></div><div class="card"><h2>2. Ask — reason over the workspace</h2><label>Model (internal selection)</label><input id="model" placeholder="openrouter/..." aria-hidden="true"><label>Reasoning mode</label><select id="mode"><option value="balanced">Balanced — selective escalation</option><option value="fast">Fast</option><option value="deep">Deep — QUORUM</option><option value="quorum">QUORUM — explicit deliberation</option></select><label>Question</label><textarea id="question" rows="7" placeholder="What does the evidence show?"></textarea><button onclick="ask()">Ask AURORA</button></div></section>
@@ -28,54 +35,45 @@
 (() => {
   const TEST_DEFAULTS = {
     supabaseUrl: 'https://kvgdpugqgtdxpxgyrvlz.supabase.co',
+    // Legacy anon key is retained as an Auth compatibility fallback; it is public by design.
     publishableKey: 'sb_publishable_Mua9NoPXf-UKUABdpmUcRg_c7XJFStf',
-    email: 'test@aurora.app',
-    password: 'test',
-    workspace: '22222222-2222-4222-8222-222222222222',
-    workspaceName: 'test_workspace'
+    legacyAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt2Z2RwdXFnZ3RkeHB4Z3lydmx6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg1MDU4NjMsImV4cCI6MjEwNDA4MTg2M30.HyMaSmGlF07c9UJx8KO1f-9_Czc2TYAf7CIzhAhCZmg',
+    email: 'test@aurora.app', password: 'test', workspace: '22222222-2222-4222-8222-222222222222', workspaceName: 'test_workspace'
+  };
+  const originalSupabaseAuth = window.supabaseAuth;
+  window.supabaseAuth = async function(grant, body) {
+    try { return await originalSupabaseAuth(grant, body); }
+    catch (firstError) {
+      if (grant !== 'password') throw firstError;
+      const base = $('supabaseUrl').value.trim().replace(/\/$/, '');
+      const r = await fetch(`${base}/auth/v1/token?grant_type=password`, { method:'POST', headers:{'Content-Type':'application/json',apikey:TEST_DEFAULTS.legacyAnonKey}, body:JSON.stringify(body) });
+      let d={}; try { d=await r.json(); } catch {}
+      if (!r.ok) throw new Error(d.msg || d.message || d.error_description || firstError.message || 'Authentication failed');
+      return d;
+    }
   };
   async function refreshGoalChoices() {
     if (typeof workspace !== 'function' || typeof api !== 'function') return;
-    const id = workspace();
-    if (!id || !token()) return;
-    try {
-      const data = await api(`/v1/goals?workspace_id=${encodeURIComponent(id)}`);
-      const select = document.getElementById('taskGoal');
-      const current = select.value;
-      select.innerHTML = '<option value="">No goal</option>' + (data.goals || []).map(g => `<option value="${esc(g.id)}">${esc(g.title)}</option>`).join('');
-      if ((data.goals || []).some(g => g.id === current)) select.value = current;
-    } catch {}
+    const id = workspace(); if (!id || !token()) return;
+    try { const data = await api(`/v1/goals?workspace_id=${encodeURIComponent(id)}`); const select=document.getElementById('taskGoal'); const current=select.value; select.innerHTML='<option value="">No goal</option>'+(data.goals||[]).map(g=>`<option value="${esc(g.id)}">${esc(g.title)}</option>`).join(''); if((data.goals||[]).some(g=>g.id===current)) select.value=current; } catch {}
   }
   const originalLoadGoals = window.loadGoals;
-  if (originalLoadGoals) window.loadGoals = async function () {
-    await originalLoadGoals();
-    await refreshGoalChoices();
-  };
-  document.addEventListener('DOMContentLoaded', async () => {
-    // MVP test account is intentionally pre-filled, but the browser remains signed out.
-    $('supabaseUrl').value = TEST_DEFAULTS.supabaseUrl;
-    $('publishableKey').value = TEST_DEFAULTS.publishableKey;
-    $('email').value = TEST_DEFAULTS.email;
-    $('password').value = TEST_DEFAULTS.password;
-    $('workspace').value = TEST_DEFAULTS.workspace;
-    $('workspaceName').value = TEST_DEFAULTS.workspaceName;
-    $('token').value = '';
-    $('refreshToken').value = '';
-    localStorage.removeItem('aurora.session_id');
-    if (typeof loadLocal === 'function') {
-      // Load only non-auth configuration; test defaults above must win on every fresh load.
-      try {
-        const x = JSON.parse(localStorage.getItem('aurora.config.v2') || '{}');
-        if (x.supabaseUrl) $('supabaseUrl').value = x.supabaseUrl;
-        if (x.publishableKey) $('publishableKey').value = x.publishableKey;
-        if (x.workspaceId) $('workspace').value = x.workspaceId;
-      } catch {}
-    }
-    $('email').value = TEST_DEFAULTS.email;
-    $('password').value = TEST_DEFAULTS.password;
-    if (!workspace()) $('workspace').value = TEST_DEFAULTS.workspace;
-    $('workspaceName').value = TEST_DEFAULTS.workspaceName;
-    setStatus('authStatus', 'Signed out. Test account is pre-populated — press Sign in to enter test_workspace.');
+  if (originalLoadGoals) window.loadGoals = async function(){ await originalLoadGoals(); await refreshGoalChoices(); };
+  const guideUrl = 'https://raw.githubusercontent.com/SystemVirtue/AURORA/main/setup_%26_deployment%20MG%20and%20hopeful_guide.md';
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  async function loadGuide(){ const c=$('helpContent'); c.innerHTML='<p>Loading the current AURORA guide…</p>'; try { const r=await fetch(guideUrl,{cache:'no-store'}); if(!r.ok) throw new Error(`Guide returned HTTP ${r.status}`); const md=await r.text(); c.innerHTML=`<div class="help-note"><b>Live guide:</b> loaded from the canonical AURORA repository. This window is movable and resizable.</div><pre>${escapeHtml(md)}</pre>`; } catch(e) { c.innerHTML=`<h2>Guide unavailable</h2><p>${escapeHtml(e.message)}</p><p>The canonical guide is maintained in the AURORA repository as <code>setup_&_deployment MG and hopeful_guide.md</code>.</p>`; } }
+  function openHelp(){ const w=$('helpWindow'); w.classList.add('open'); w.setAttribute('aria-hidden','false'); loadGuide(); }
+  function closeHelp(){ const w=$('helpWindow'); w.classList.remove('open'); w.setAttribute('aria-hidden','true'); }
+  $('helpLauncher').addEventListener('click',openHelp); $('helpClose').addEventListener('click',closeHelp); $('helpRefresh').addEventListener('click',loadGuide);
+  const bar=$('helpTitlebar'), win=$('helpWindow'); let drag=null;
+  bar.addEventListener('pointerdown',e=>{ if(e.target.closest('button')) return; const r=win.getBoundingClientRect(); drag={x:e.clientX,y:e.clientY,left:r.left,top:r.top}; win.style.right='auto'; win.style.bottom='auto'; bar.setPointerCapture(e.pointerId); });
+  bar.addEventListener('pointermove',e=>{ if(!drag) return; const nx=Math.max(4,Math.min(window.innerWidth-win.offsetWidth-4,drag.left+e.clientX-drag.x)); const ny=Math.max(4,Math.min(window.innerHeight-win.offsetHeight-4,drag.top+e.clientY-drag.y)); win.style.left=nx+'px'; win.style.top=ny+'px'; });
+  bar.addEventListener('pointerup',()=>{drag=null;});
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeHelp(); });
+  document.addEventListener('DOMContentLoaded', async()=>{
+    $('supabaseUrl').value=TEST_DEFAULTS.supabaseUrl; $('publishableKey').value=TEST_DEFAULTS.publishableKey; $('email').value=TEST_DEFAULTS.email; $('password').value=TEST_DEFAULTS.password; $('workspace').value=TEST_DEFAULTS.workspace; $('workspaceName').value=TEST_DEFAULTS.workspaceName; $('token').value=''; $('refreshToken').value=''; localStorage.removeItem('aurora.session_id');
+    try { const x=JSON.parse(localStorage.getItem('aurora.config.v2')||'{}'); if(x.supabaseUrl) $('supabaseUrl').value=x.supabaseUrl; if(x.publishableKey) $('publishableKey').value=x.publishableKey; if(x.workspaceId) $('workspace').value=x.workspaceId; } catch {}
+    $('email').value=TEST_DEFAULTS.email; $('password').value=TEST_DEFAULTS.password; if(!workspace()) $('workspace').value=TEST_DEFAULTS.workspace; $('workspaceName').value=TEST_DEFAULTS.workspaceName; setStatus('authStatus','Signed out. Test account is pre-populated — press Sign in to enter test_workspace.');
   });
 })();
 </script>

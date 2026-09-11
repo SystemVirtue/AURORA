@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from apps.api.continuity_routes import router as continuity_router
@@ -24,7 +25,7 @@ from aurora.gateway import ReasoningError, ReasoningGateway
 
 app = FastAPI(title="AURORA", version="0.6.0")
 bearer = HTTPBearer(auto_error=False)
-if settings.allowed_cors_origins: app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_cors_origins, allow_credentials=True, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["Authorization", "Content-Type", "Accept"], max_age=600)
+if settings.allowed_cors_origins: app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_cors_origins, allow_credentials=True, allow_methods=["GET", "POST", "PATCH", "OPTIONS"], allow_headers=["Authorization", "Content-Type", "Accept"], max_age=600)
 
 class AskRequest(BaseModel):
     workspace_id: uuid.UUID
@@ -161,3 +162,8 @@ async def ask(request: AskRequest, user_id: uuid.UUID = Depends(current_user)) -
     response = {"session_id": str(session_id), "reasoning_run_id": str(reasoning_run_id), "answer": result["answer"], "evidence": retrieved, "evidence_ids": evidence_ids, "model": result["model"], "provider": result.get("provider"), "latency_ms": result.get("latency_ms"), "trace": {"correlation_id": str(correlation_id), "user_event_id": str(_user_event_id), "assistant_event_id": str(assistant_event_id), "warrant": quorum.get("warrant") if quorum else warrant}}
     if quorum: response["quorum"] = quorum; response["trace"]["quorum_event_id"] = str(quorum_event_id)
     return response
+
+# Serve the canonical MVP web assets from the same origin as the API.
+# API routes above take precedence; the mount handles /app.js, /ux.js,
+# /knowledge_explorer.js and the other browser assets referenced by index.html.
+app.mount("/", StaticFiles(directory=Path(__file__).resolve().parents[1] / "web"), name="web")
